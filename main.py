@@ -191,8 +191,13 @@ class Resolver:
     """Runs the Discogs search priority ladder and disambiguates to an exact
     pressing using the runout, falling back to master versions."""
 
-    # How many distinct candidate covers to send to the cover-matcher.
-    MAX_COVER_CANDIDATES = 4
+    # Cover-matching budget: up to MAX_COVER_CANDIDATES covers per vision call,
+    # across up to MAX_COVER_BATCHES calls (so up to 8*2 = 16 covers compared
+    # before falling back to a guess). MAX_POOL bounds how many candidate
+    # releases we gather across all search angles.
+    MAX_COVER_CANDIDATES = 8
+    MAX_COVER_BATCHES = 2
+    MAX_POOL = 40
 
     def __init__(
         self,
@@ -389,11 +394,12 @@ class Resolver:
     def _confirm_or_guess(
         self, results: list[dict], ext: AlbumExtraction
     ) -> Resolution | None:
-        """Tier 2/3: the runout didn't confirm the pressing. Try to confirm the
-        *album* visually by cover art (-> MEDIUM, right album). Failing that,
-        fall back to a text-only best guess (-> LOW)."""
-        plausible = self._plausible(results, ext)
-        confirmed = self._cover_confirm(plausible, ext)
+        """Tier 2/3: the runout didn't confirm the pressing. Try hard to confirm
+        the *album* visually by cover art (-> MEDIUM, right album), pooling
+        candidates across every search angle. Failing that, fall back to a
+        text-only best guess (-> LOW)."""
+        pool = self._augment_candidates(results, ext)
+        confirmed = self._cover_confirm(pool, ext)
         if confirmed:
             chosen = self._highest_have(confirmed)  # best pressing among matches
             return Resolution(
@@ -402,46 +408,116 @@ class Resolver:
                 release_id=int(chosen["id"]),
                 title=_title_of(chosen),
                 discogs_url=_candidate_url(chosen),
-                alternates=_alternates(results, chosen),
+                alternates=_alternates(pool, chosen),
                 cover_confirmed=True,
                 note="Front cover visually confirmed; exact pressing may differ.",
             )
-        return self._versions_fallback(results, ext)
+        # Guess from the (plausibility-filtered) pool so even hunches benefit
+        # from the wider candidate set.
+        return self._versions_fallback(pool, ext)
 
-    def _cover_confirm(
+    def _augment_candidates(
         self, results: list[dict], ext: AlbumExtraction
     ) -> list[dict]:
-        """Return the subset of candidates whose cover art the model confirms
-        matches the photographed front. Best-effort: any failure -> []."""
-        if not self._cover_match or self._front_path is None or self._extractor is None:
-            return []
-        # Collect up to N distinct candidate covers.
-        picked: list[dict] = []
-        thumbs: list[str] = []
-        seen: set[str] = set()
-        for r in results:
-            url = r.get("cover_image") or r.get("thumb") or ""
-            if not url or url in seen:
-                continue
-            data = self._client.fetch_image(url)
-            if not data:
+        """Pool unique candidate releases across several search angles so the
+        cover-matcher sees the right artwork even when one query missed it."""
+        pa = primary_artist(ext.front.artist)
+        artist = ext.front.artist
+        title = ext.front.title
+        extra: list[dict[str, str]] = []
+        if pa and title:
+            extra.append({"artist": pa, "release_title": title})
+        if title:
+            extra.append({"release_title": title, "format": "Vinyl"})
+            extra.append({"release_title": title})
+            extra.append({"q": f"{pa} {title}".strip()})
+            extra.append({"q": f"{artist} {title}".strip()})
+            extra.append({"q": title})
+
+        pool = list(results)
+        seen_ids = {r.get("id") for r in pool}
+        for params in extra:
+            if not any(params.values()):
                 continue
             try:
-                thumbs.append(prepare_cover_bytes(data))
-            except Exception:
+                more = self._client.search(**params)
+            except DiscogsError:
                 continue
-            seen.add(url)
-            picked.append(r)
-            if len(picked) >= self.MAX_COVER_CANDIDATES:
+            for r in more:
+                rid = r.get("id")
+                if rid is not None and rid not in seen_ids:
+                    seen_ids.add(rid)
+                    pool.append(r)
+            if len(pool) >= self.MAX_POOL:
                 break
-        if not picked:
+        return pool[: self.MAX_POOL]
+
+    def _cover_confirm(
+        self, pool: list[dict], ext: AlbumExtraction
+    ) -> list[dict]:
+        """Show the model distinct candidate covers — most title-plausible first
+        — in batches, and return every pooled release sharing a confirmed cover.
+        Best-effort: any failure -> []."""
+        if not self._cover_match or self._front_path is None or self._extractor is None:
             return []
+
+        # Distinct covers, ranked by title agreement (likely matches first) so
+        # the strongest candidates are always in the first batch — but we do NOT
+        # drop low-agreement covers: the vision model is the real filter.
+        ranked: list[tuple[float, dict, str]] = []
+        seen_urls: set[str] = set()
+        for r in pool:
+            url = r.get("cover_image") or r.get("thumb") or ""
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            score = front_back_agreement(
+                ext.front.artist, ext.front.title, _title_of(r)
+            )
+            ranked.append((score, r, url))
+        ranked.sort(key=lambda t: t[0], reverse=True)
+        if not ranked:
+            return []
+
         try:
             front_b64 = prepare_cover(self._front_path)
-            verdict = self._extractor.match_covers(front_b64, thumbs)
         except Exception:
             return []
-        return [picked[i] for i in verdict.matches if 0 <= i < len(picked)]
+
+        n = self.MAX_COVER_CANDIDATES
+        for start in range(0, min(len(ranked), n * self.MAX_COVER_BATCHES), n):
+            batch = ranked[start : start + n]
+            thumbs: list[str] = []
+            reps: list[dict] = []
+            for _score, r, url in batch:
+                data = self._client.fetch_image(url)
+                if not data:
+                    continue
+                try:
+                    thumbs.append(prepare_cover_bytes(data))
+                except Exception:
+                    continue
+                reps.append(r)
+            if not thumbs:
+                continue
+            try:
+                verdict = self._extractor.match_covers(front_b64, thumbs)
+            except Exception:
+                continue
+            matched = [reps[i] for i in verdict.matches if 0 <= i < len(reps)]
+            if matched:
+                # Expand to every pooled release with the same cover art so the
+                # best-pressing pick can range over all of them.
+                matched_urls = {
+                    (m.get("cover_image") or m.get("thumb")) for m in matched
+                }
+                expanded = [
+                    r
+                    for r in pool
+                    if (r.get("cover_image") or r.get("thumb")) in matched_urls
+                ]
+                return expanded or matched
+        return []
 
     def _plausible(self, results: list[dict], ext: AlbumExtraction) -> list[dict]:
         """Drop obviously-unrelated broad-search hits before guessing: keep only

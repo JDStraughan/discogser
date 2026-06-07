@@ -35,9 +35,13 @@ Per album, the pipeline:
    fuzzy-matches your transcribed matrix against its `Matrix / Runout`
    identifiers. A runout match pins the *exact pressing* and overrides the rest.
 5. **Confirms by cover art** — when the runout can't confirm the pressing, it
-   downloads each candidate's Discogs cover and asks Claude vision whether it's
-   the same album as your front-cover photo (robust to angle, glare, stickers).
-   A cover match confirms the *right album* (pressing may differ).
+   pools candidates across *every* search angle (not just the one that hit),
+   then asks Claude vision whether any candidate's Discogs cover is the same
+   album as your front-cover photo (robust to angle, glare, stickers). It
+   compares up to 16 covers across two batches and lets the vision be the
+   filter — so messy classical/compound titles still get matched. A cover match
+   confirms the *right album* (pressing may differ); it then picks the most-held
+   pressing sharing that cover.
 6. **Falls back** to the master's most-common version (highest "have", US-biased)
    as a text-only *guess* when neither runout nor cover resolves it.
 
