@@ -53,8 +53,8 @@ class Tally:
     added: int = 0      # everything added (or would-add in dry-run)
     covers: int = 0     # subset of added: cover-art confirmed
     medium: int = 0     # subset of added
-    guesses: int = 0    # subset of added (--guess mode)
-    review: int = 0     # LOW -> review.csv
+    guesses: int = 0    # subset of review: text-only hunches, flagged not added
+    review: int = 0     # flagged -> review.csv (includes guesses)
     skipped: int = 0    # dupes / already processed
     errors: int = 0
     extra: dict = field(default_factory=dict)
@@ -254,15 +254,18 @@ class RunUI:
         table.add_column(justify="right", style="bold")
         table.add_column(justify="left")
 
-        bits = []
+        add_bits = []
         if t.covers:
-            bits.append(f"{t.covers} cover")
-        bits.append(f"{t.medium} medium")
-        if t.guesses:
-            bits.append(f"{t.guesses} guess")
-        breakdown = "incl. " + ", ".join(bits)
-        table.add_row(Text(str(t.added), style="bright_green"), f"{verb}  [dim]({breakdown})[/dim]")
-        table.add_row(Text(str(t.review), style="red"), "flagged for review  [dim]→ review.csv[/dim]")
+            add_bits.append(f"{t.covers} cover")
+        add_bits.append(f"{t.medium} medium")
+        add_breakdown = "incl. " + ", ".join(add_bits)
+        table.add_row(Text(str(t.added), style="bright_green"), f"{verb}  [dim]({add_breakdown})[/dim]")
+
+        flag_extra = f"  [dim](incl. {t.guesses} hunch{'es' if t.guesses != 1 else ''})[/dim]" if t.guesses else ""
+        table.add_row(
+            Text(str(t.review), style="red"),
+            f"flagged for review  [dim]→ review.csv[/dim]{flag_extra}",
+        )
         table.add_row(Text(str(t.skipped), style="grey50"), "skipped  [dim](dupes / already processed)[/dim]")
         table.add_row(Text(str(t.errors), style="bright_red" if t.errors else "grey50"), "errors")
 
@@ -289,7 +292,8 @@ class RunUI:
             self.tally.added += 1
             self.tally.medium += 1
         elif status == "guess":
-            self.tally.added += 1
+            # Flagged for review (a hunch), not added.
+            self.tally.review += 1
             self.tally.guesses += 1
         elif status == "review":
             self.tally.review += 1
@@ -302,11 +306,12 @@ class RunUI:
 
     def _tally_markup(self) -> str:
         t = self.tally
+        not_found = max(t.review - t.guesses, 0)
         return (
             f"  [bright_green]✓{t.added}[/]  "
             f"[cyan]◉{t.covers}[/]  "
             f"[magenta]≈{t.guesses}[/]  "
-            f"[red]⚑{t.review}[/]  "
+            f"[red]⚑{not_found}[/]  "
             f"[grey50]↻{t.skipped}[/]  "
             f"[bright_red]✗{t.errors}[/]"
         )

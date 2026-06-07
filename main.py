@@ -258,7 +258,7 @@ class Resolver:
 
         # (d) progressively looser fallbacks — recall over precision. Each feeds
         # the same runout-then-guess machinery, so a hit here is a HIGH if the
-        # runout confirms it, otherwise a LOW guess (added only in --guess mode).
+        # runout confirms it, otherwise a LOW guess (flagged for review).
         fallbacks: list[dict[str, str]] = []
         if back.catalog_number:
             fallbacks.append({"catno": back.catalog_number})          # catno alone
@@ -457,7 +457,7 @@ class Resolver:
         self, results: list[dict], ext: AlbumExtraction
     ) -> Resolution | None:
         """No runout resolution: pick the master's most-common version, US-
-        biased, and mark it a guess (LOW — only added in --guess mode)."""
+        biased, and mark it a guess (LOW — flagged for review, not added)."""
         plausible = self._plausible(results, ext)
         master_id = next(
             (r.get("master_id") for r in plausible if r.get("master_id")), None
@@ -549,7 +549,6 @@ def run(
     config: Config,
     commit: bool,
     folder_name: str | None,
-    guess: bool = False,
     cover_match: bool = True,
     console: Console | None = None,
 ) -> int:
@@ -681,11 +680,9 @@ def run(
                     )
                     continue
 
-                auto_add = res.confidence in (Confidence.HIGH, Confidence.MEDIUM)
-                # In --guess mode, a LOW result that still pinned a release id is
-                # added as an explicit guess rather than parked in review.
-                guess_add = guess and not auto_add and res.release_id is not None
-                will_add = auto_add or guess_add
+                # Only exact (HIGH) and cover-confirmed/strong (MEDIUM) results
+                # auto-add. A text-only guess is flagged for review, never added.
+                will_add = res.confidence in (Confidence.HIGH, Confidence.MEDIUM)
 
                 # Attempt the write first (in commit mode) so a failure surfaces
                 # as an error row rather than a misleading tick.
@@ -722,7 +719,8 @@ def run(
                     status = "cover"
                 elif res.confidence == Confidence.MEDIUM:
                     status = "medium"
-                elif guess_add:
+                elif res.is_guess and res.release_id is not None:
+                    # A hunch — flagged for review with its candidate link, not added.
                     status = "guess"
                 else:
                     status = "review"

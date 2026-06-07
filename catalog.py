@@ -43,13 +43,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Discogs folder name to add to (overrides DISCOGS_FOLDER).",
     )
     parser.add_argument(
-        "--guess",
-        action="store_true",
-        help="Aggressive: also add the best candidate for LOW-confidence albums "
-        "(text-only, no runout or cover confirmation), instead of parking them "
-        "in review.csv. Marked ≈ GUESS.",
-    )
-    parser.add_argument(
         "--no-cover",
         action="store_true",
         help="Disable visual cover-art confirmation (saves a vision call per "
@@ -75,7 +68,6 @@ def main(argv: list[str] | None = None) -> int:
         config=config,
         commit=commit,
         folder_name=args.folder,
-        guess=args.guess,
         cover_match=not args.no_cover,
         console=console,
     )

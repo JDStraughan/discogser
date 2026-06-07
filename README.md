@@ -45,16 +45,17 @@ Per album, the pipeline:
 
 | Tier | Confidence | Trigger | Action |
 |---|---|---|---|
-| **exact** | **HIGH** ✓ | barcode exact, or runout matrix match | auto-add (exact pressing) |
-| **cover** | **COVER** ◉ | front-cover photo visually matches a candidate's art | auto-add (right album, pressing may differ) |
-| **general** | **MEDIUM** ✓ | single strong `catno + artist`, front/back agree | auto-add |
-| **liberal** | **GUESS** ≈ | best text-only candidate, nothing confirmed it | add **only with `--guess`** |
-| — | **LOW** ⚑ | nothing plausible / not found | **not added** → `review.csv` |
+| **exact** | **HIGH** ✓ | barcode exact, or runout matrix match | **add** (exact pressing) |
+| **cover** | **COVER** ◉ | front-cover photo visually matches a candidate's art | **add** (right album, pressing may differ) |
+| **general** | **MEDIUM** ✓ | single strong `catno + artist`, front/back agree | **add** |
+| **liberal** | **GUESS** ≈ | best text-only candidate, nothing confirmed it | **flag** → `review.csv` (with candidate link) |
+| — | **LOW** ⚑ | nothing plausible / not found | **flag** → `review.csv` |
 
-By default it adds everything it can pin exactly *or* confirm by cover — that's
-the bar for "it's the right album." Pure text guesses are held back unless you
-pass `--guess`. Disable the cover-vision step with `--no-cover` (saves a vision
-call per unconfirmed album).
+The bar for adding is "it's the right album" — something it can pin exactly
+*or* confirm by cover art. A text-only guess isn't good enough to add: it's
+flagged for review instead (still shown as ≈ GUESS with its best-candidate link
+so you can one-click confirm it). Disable the cover-vision step with
+`--no-cover` (saves a vision call per unconfirmed album).
 
 **Sequence integrity:** the order is not trusted blindly. Vision confirms every
 group is one front, one back, one runout. If a group doesn't match (a missed or
@@ -112,9 +113,6 @@ python catalog.py ./photos
 
 # Actually add (exact + cover-confirmed albums) to your collection.
 python catalog.py ./photos --commit
-
-# Also commit text-only best-guesses (right album, maybe wrong pressing).
-python catalog.py ./photos --commit --guess
 
 # Add to a specific folder by name; skip the cover-vision step.
 python catalog.py ./photos --commit --folder "New Arrivals" --no-cover
