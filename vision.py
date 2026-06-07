@@ -43,11 +43,6 @@ class Role(str, Enum):
     RUNOUT = "runout"
 
 
-# The 3 images are sent in their assumed order (front, back, runout). The model
-# reports the ACTUAL role of each position so we can detect sequence drift.
-EXPECTED_ORDER: tuple[Role, Role, Role] = (Role.FRONT, Role.BACK, Role.RUNOUT)
-
-
 @dataclass(frozen=True)
 class FrontInfo:
     artist: str
@@ -78,10 +73,6 @@ class AlbumExtraction:
     front: FrontInfo
     back: BackInfo
     runout: RunoutInfo
-
-    @property
-    def roles_match_expected(self) -> bool:
-        return tuple(self.image_roles) == tuple(r.value for r in EXPECTED_ORDER)
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +235,37 @@ _PROMPT = (
 )
 
 
+_COVER_TOOL = "compare_covers"
+_COVER_MAX_TOKENS = 512
+_COVER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        # `reason` is required but unused by the caller — forcing the model to
+        # justify its picks measurably improves multi-image discrimination.
+        "reason": {"type": "string"},
+        "matches": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": (
+                "0-based indices of the candidate covers that show the SAME "
+                "album as the reference photo (same artwork). Empty if none."
+            ),
+        },
+    },
+    "required": ["reason", "matches"],
+    "additionalProperties": False,
+}
+
+_COVER_PROMPT = (
+    "The REFERENCE image is a phone photo of a vinyl record's front cover — it "
+    "may be angled, have glare, price stickers, or shelf wear. The numbered "
+    "CANDIDATE images are clean cover scans from a database. Decide which "
+    "candidates show the SAME album cover as the reference: same artwork, same "
+    "title/artist treatment. Ignore condition, lighting, angle, stickers, and "
+    "minor edition differences. If none clearly match, return an empty list."
+)
+
+
 def _image_block(b64: str) -> dict:
     return {
         "type": "image",
@@ -283,13 +305,11 @@ class VisionExtractor:
             raise RuntimeError("Vision model did not return a tool_use block")
         return _parse_extraction(tool_use.input)
 
-    def match_covers(
-        self, front_b64: str, candidate_b64: list[str]
-    ) -> CoverVerdict:
-        """Ask the model which candidate cover scans match the photographed
-        front cover. `candidate_b64` is ordered; returned indices reference it."""
+    def match_covers(self, front_b64: str, candidate_b64: list[str]) -> tuple[int, ...]:
+        """Return the indices of the candidate cover scans that show the same
+        album as the photographed front cover. Indices reference candidate_b64."""
         if not candidate_b64:
-            return CoverVerdict(matches=(), confidence="low")
+            return ()
 
         content: list[dict] = [
             {"type": "text", "text": _COVER_PROMPT},
@@ -302,63 +322,22 @@ class VisionExtractor:
 
         message = self._client.messages.create(
             model=self._model,
-            max_tokens=512,
-            tools=[
-                {
-                    "name": _COVER_TOOL,
-                    "description": "Report which candidate covers match the reference.",
-                    "input_schema": _COVER_SCHEMA,
-                }
-            ],
+            max_tokens=_COVER_MAX_TOKENS,
+            tools=[{
+                "name": _COVER_TOOL,
+                "description": "Report which candidate covers match the reference.",
+                "input_schema": _COVER_SCHEMA,
+            }],
             tool_choice={"type": "tool", "name": _COVER_TOOL},
             messages=[{"role": "user", "content": content}],
         )
         tool_use = next((b for b in message.content if b.type == "tool_use"), None)
         if tool_use is None:
-            return CoverVerdict(matches=(), confidence="low")
-        raw = tool_use.input
-        valid = tuple(
-            i for i in raw.get("matches", []) if isinstance(i, int) and 0 <= i < len(candidate_b64)
+            return ()
+        return tuple(
+            i for i in tool_use.input.get("matches", [])
+            if isinstance(i, int) and 0 <= i < len(candidate_b64)
         )
-        return CoverVerdict(matches=valid, confidence=raw.get("confidence", "low"))
-
-
-@dataclass(frozen=True)
-class CoverVerdict:
-    matches: tuple[int, ...]   # indices of candidates that are the same album
-    confidence: str            # "high" | "medium" | "low"
-
-
-_COVER_TOOL = "compare_covers"
-_COVER_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "matches": {
-            "type": "array",
-            "items": {"type": "integer"},
-            "description": (
-                "0-based indices of the candidate covers that show the SAME "
-                "album as the reference photo (same cover artwork / title). "
-                "Empty if none match."
-            ),
-        },
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "reason": {"type": "string"},
-    },
-    "required": ["matches", "confidence", "reason"],
-    "additionalProperties": False,
-}
-
-_COVER_PROMPT = (
-    "The REFERENCE image is a phone photo of a vinyl record's front cover — it "
-    "may be angled, have glare, price stickers, or shelf wear. The numbered "
-    "CANDIDATE images are clean cover scans from a database. Decide which "
-    "candidates show the SAME album cover as the reference: same artwork, same "
-    "title/artist treatment. Ignore condition, lighting, angle, stickers, and "
-    "minor edition differences (the art is what matters). Return the matching "
-    "indices via the compare_covers tool. If none clearly match, return an "
-    "empty list."
-)
 
 
 def _parse_extraction(data: dict) -> AlbumExtraction:

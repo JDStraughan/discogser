@@ -2,7 +2,7 @@
 """discogser — catalog vinyl records into Discogs from phone photos.
 
 Usage:
-    python catalog.py ./photos [--dry-run] [--commit] [--folder NAME]
+    python catalog.py ./photos [--dry-run | --commit] [--folder NAME] [--no-cover]
 
 Defaults to --dry-run: everything is processed and reported, but nothing is
 written to your collection. Pass --commit to actually add releases.

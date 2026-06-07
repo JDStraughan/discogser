@@ -25,14 +25,10 @@ _KEEP = re.compile(r"[A-Z0-9/\-]+")
 
 
 def normalize_matrix(s: str) -> str:
-    """Uppercase, drop spaces and OCR noise, keep alnum + '/' + '-'."""
-    if not s:
-        return ""
-    upper = s.upper()
-    # Common OCR confusions in etched dead-wax: a leading/standalone glyph that
-    # is really a plant logo, etc. We keep it simple and only retain the
-    # structural character classes; fuzzy matching absorbs the rest.
-    return "".join(_KEEP.findall(upper))
+    """Uppercase and keep only the structural characters of a matrix string
+    (alnum, '/', '-'); spaces, punctuation, and stray glyphs are dropped so
+    fuzzy matching compares the meaningful core."""
+    return "".join(_KEEP.findall(s.upper())) if s else ""
 
 
 @dataclass(frozen=True)

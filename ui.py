@@ -8,18 +8,18 @@ Design goals:
     release id carry the color; the album text stays readable so your eyes don't
     bleed over a long run.
   * A pinned bottom bar shows position, %, elapsed, ETA, and a running tally
-    (added / medium / review / skipped / errors) so you always know where you
-    are without scrolling.
+    (added / cover / guess / not-found / skipped / errors) so you always know
+    where you are without scrolling.
   * The things you MUST notice — sequence drift, leftovers, the final summary —
     are full-width panels, not easy-to-miss lines.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from rich.box import ROUNDED
-from rich.console import Console, Group
+from rich.console import Console
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
@@ -57,7 +57,6 @@ class Tally:
     review: int = 0     # flagged -> review.csv (includes guesses)
     skipped: int = 0    # dupes / already processed
     errors: int = 0
-    extra: dict = field(default_factory=dict)
 
 
 def _fit(text: str, width: int) -> str:
@@ -161,11 +160,8 @@ class RunUI:
         glyph, label, color = _STATUS[status]
 
         line = Text(no_wrap=True, overflow="ellipsis")
-        # counter
         line.append(f"[{self._done:>{self._counter_w}}/{self.total}] ", style="dim")
-        # glyph
         line.append(f"{glyph} ", style=color)
-        # confidence badge
         line.append(f"{label:<{_BADGE_WIDTH}} ", style=f"bold {color}")
 
         # Exact column budget so the row is always a single line:
@@ -241,9 +237,6 @@ class RunUI:
         self.console.print(
             Panel(body, title="✗ INCOMPLETE SET", title_align="left", box=ROUNDED, border_style="red")
         )
-
-    def note(self, message: str, style: str = "dim") -> None:
-        self._print(Text(f"    {message}", style=style))
 
     # -- closing summary ----------------------------------------------------
 

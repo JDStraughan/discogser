@@ -18,7 +18,7 @@ from pathlib import Path
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS albums (
     album_key   TEXT PRIMARY KEY,
-    status      TEXT NOT NULL,          -- added | medium | review | skipped | error
+    status      TEXT NOT NULL,          -- high|cover|medium|guess|review|skipped|error
     release_id  INTEGER,
     title       TEXT,
     confidence  TEXT,
