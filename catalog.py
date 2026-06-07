@@ -42,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Discogs folder name to add to (overrides DISCOGS_FOLDER).",
     )
+    parser.add_argument(
+        "--guess",
+        action="store_true",
+        help="Aggressive: also add the best candidate for LOW-confidence albums "
+        "(when a release was pinned but the runout didn't confirm it), instead "
+        "of parking them in review.csv. Marked ≈ GUESS.",
+    )
     return parser
 
 
@@ -62,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         config=config,
         commit=commit,
         folder_name=args.folder,
+        guess=args.guess,
         console=console,
     )
 

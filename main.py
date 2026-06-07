@@ -16,7 +16,7 @@ from rich.console import Console
 from config import Config
 from discogs import DiscogsClient, DiscogsError, have_count
 from ledger import Ledger, album_key
-from matching import agrees, best_runout_match, is_runout_hit
+from matching import agrees, best_runout_match, front_back_agreement, is_runout_hit
 from ui import RunUI
 from vision import AlbumExtraction, VisionExtractor, validate_group_roles
 
@@ -158,6 +158,36 @@ def _title_of(result: dict) -> str:
     return result.get("title", "") or ""
 
 
+# Credit phrases that bloat an artist string and break an exact artist search.
+_ARTIST_CUTS = (
+    " with ", " feat. ", " feat ", " featuring ",
+    " and his ", " and her ", " and the ",
+)
+
+
+def primary_artist(artist: str) -> str:
+    """Reduce a printed credit to the searchable primary artist.
+
+    'Norman Brooks with Al Goodman and His Orchestra' -> 'Norman Brooks'
+    'Rimsky-Korsakov / L'Orchestre de la ...'         -> 'Rimsky-Korsakov'
+    'The Swingle Singers'                              -> 'Swingle Singers'
+    """
+    a = artist.strip()
+    if a.lower().startswith("the "):
+        a = a[4:]
+    low = a.lower()
+    cut = len(a)
+    for sep in _ARTIST_CUTS:
+        i = low.find(sep)
+        if i != -1:
+            cut = min(cut, i)
+    for ch in ("/", ","):  # keep '&' — Discogs uses it (e.g. Simon & Garfunkel)
+        i = a.find(ch)
+        if i > 0:
+            cut = min(cut, i)
+    return a[:cut].strip() or artist.strip()
+
+
 class Resolver:
     """Runs the Discogs search priority ladder and disambiguates to an exact
     pressing using the runout, falling back to master versions."""
@@ -189,6 +219,7 @@ class Resolver:
         artist = ext.front.artist
         title = ext.front.title
         back = ext.back
+        pa = primary_artist(artist)
 
         # (a) barcode exact
         if back.barcode:
@@ -197,18 +228,37 @@ class Resolver:
                 return self._from_barcode(results, ext)
 
         # (b) catno + artist
-        if back.catalog_number and artist:
-            results = self._client.search(catno=back.catalog_number, artist=artist)
+        if back.catalog_number and pa:
+            results = self._client.search(catno=back.catalog_number, artist=pa)
             if results:
                 resolved = self._from_catno(results, ext)
                 if resolved is not None:
                     return resolved
 
         # (c) artist + release_title + format=Vinyl
-        if artist and title:
+        if pa and title:
             results = self._client.search(
-                artist=artist, release_title=title, format="Vinyl"
+                artist=pa, release_title=title, format="Vinyl"
             )
+            if results:
+                resolved = self._from_title(results, ext)
+                if resolved is not None:
+                    return resolved
+
+        # (d) progressively looser fallbacks — recall over precision. Each feeds
+        # the same runout-then-guess machinery, so a hit here is a HIGH if the
+        # runout confirms it, otherwise a LOW guess (added only in --guess mode).
+        fallbacks: list[dict[str, str]] = []
+        if back.catalog_number:
+            fallbacks.append({"catno": back.catalog_number})          # catno alone
+        if pa and title:
+            fallbacks.append({"artist": pa, "release_title": title})  # drop format filter
+        if title:
+            fallbacks.append({"release_title": title, "format": "Vinyl"})  # title only
+            fallbacks.append({"q": f"{pa} {title}".strip()})          # broad full-text
+            fallbacks.append({"q": f"{artist} {title}".strip()})      # broad, raw artist
+        for params in fallbacks:
+            results = self._client.search(**params)
             if results:
                 resolved = self._from_title(results, ext)
                 if resolved is not None:
@@ -221,7 +271,7 @@ class Resolver:
             release_id=None,
             title=f"{artist} – {title}".strip(" –"),
             discogs_url=None,
-            note="No Discogs candidates matched barcode, catno, or artist/title.",
+            note="No Discogs candidates matched barcode, catno, artist/title, or broad search.",
         )
 
     # -- per-strategy resolution -------------------------------------------
@@ -325,13 +375,24 @@ class Resolver:
             )
         return self._versions_fallback(results, ext)
 
+    def _plausible(self, results: list[dict], ext: AlbumExtraction) -> list[dict]:
+        """Drop obviously-unrelated broad-search hits before guessing: keep only
+        candidates whose title is at least loosely consistent with the front."""
+        keep = [
+            r
+            for r in results
+            if front_back_agreement(ext.front.artist, ext.front.title, _title_of(r)) >= 45
+        ]
+        return keep or results
+
     def _versions_fallback(
         self, results: list[dict], ext: AlbumExtraction
     ) -> Resolution | None:
         """No runout resolution: pick the master's most-common version, US-
-        biased, and mark it a guess (LOW — do not auto-add)."""
+        biased, and mark it a guess (LOW — only added in --guess mode)."""
+        plausible = self._plausible(results, ext)
         master_id = next(
-            (r.get("master_id") for r in results if r.get("master_id")), None
+            (r.get("master_id") for r in plausible if r.get("master_id")), None
         )
         candidate = None
         if master_id:
@@ -342,8 +403,8 @@ class Resolver:
             candidate = _pick_version(versions)
 
         if candidate is None:
-            # Fall back to the highest-have search result as the best guess.
-            chosen = self._highest_have(results)
+            # Fall back to the highest-have plausible result as the best guess.
+            chosen = self._highest_have(plausible)
             return Resolution(
                 confidence=Confidence.LOW,
                 signal="ambiguous (best guess)",
@@ -420,6 +481,7 @@ def run(
     config: Config,
     commit: bool,
     folder_name: str | None,
+    guess: bool = False,
     console: Console | None = None,
 ) -> int:
     """Process a folder of photos. Returns a process exit code (0 ok)."""
@@ -548,12 +610,16 @@ def run(
                     continue
 
                 auto_add = res.confidence in (Confidence.HIGH, Confidence.MEDIUM)
+                # In --guess mode, a LOW result that still pinned a release id is
+                # added as an explicit guess rather than parked in review.
+                guess_add = guess and not auto_add and res.release_id is not None
+                will_add = auto_add or guess_add
 
                 # Attempt the write first (in commit mode) so a failure surfaces
-                # as an error row rather than a misleading green tick.
+                # as an error row rather than a misleading tick.
                 committed = False
                 add_error: str | None = None
-                if auto_add and commit and res.release_id is not None:
+                if will_add and commit and res.release_id is not None:
                     try:
                         client.add_to_collection(folder_id, res.release_id)
                         owned.add(res.release_id)
@@ -578,8 +644,15 @@ def run(
                     )
                     continue
 
+                if auto_add:
+                    status = _STATUS_KEY[res.confidence]
+                elif guess_add:
+                    status = "guess"
+                else:
+                    status = "review"
+
                 ui.album(
-                    status=_STATUS_KEY[res.confidence],
+                    status=status,
                     artist=ext.front.artist or "Unknown",
                     title=res.title or ext.front.title,
                     release_id=res.release_id,
@@ -589,13 +662,15 @@ def run(
                 )
 
                 results_rows.append(_results_row(ext, res, group))
-                if not auto_add:
+                # Only things we did NOT add go to the review queue.
+                if not will_add:
                     review_rows.append(_review_row(ext, res, group))
 
                 ledger.record(
                     key,
                     status=("added" if res.confidence == Confidence.HIGH
                             else "medium" if res.confidence == Confidence.MEDIUM
+                            else "guess" if guess_add
                             else "review"),
                     release_id=res.release_id, title=res.title,
                     confidence=res.confidence.value, signal=res.signal,

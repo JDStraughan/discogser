@@ -37,6 +37,7 @@ from rich.text import Text
 _STATUS = {
     "high":    ("✓", "HIGH",   "bright_green"),
     "medium":  ("✓", "MEDIUM", "yellow"),
+    "guess":   ("≈", "GUESS",  "magenta"),
     "review":  ("⚑", "LOW",    "red"),
     "skipped": ("↻", "DUP",    "grey50"),
     "error":   ("✗", "ERR",    "bright_red"),
@@ -48,8 +49,9 @@ _VALUE_WIDTH = 8  # "$1,234" / "$24.99"
 
 @dataclass
 class Tally:
-    added: int = 0      # HIGH + MEDIUM (added, or would-add in dry-run)
+    added: int = 0      # HIGH + MEDIUM + guesses (added, or would-add in dry-run)
     medium: int = 0     # subset of added
+    guesses: int = 0    # subset of added (--guess mode)
     review: int = 0     # LOW -> review.csv
     skipped: int = 0    # dupes / already processed
     errors: int = 0
@@ -250,7 +252,8 @@ class RunUI:
         table.add_column(justify="right", style="bold")
         table.add_column(justify="left")
 
-        table.add_row(Text(str(t.added), style="bright_green"), f"{verb}  [dim](incl. {t.medium} medium)[/dim]")
+        breakdown = f"incl. {t.medium} medium, {t.guesses} guess" if t.guesses else f"incl. {t.medium} medium"
+        table.add_row(Text(str(t.added), style="bright_green"), f"{verb}  [dim]({breakdown})[/dim]")
         table.add_row(Text(str(t.review), style="red"), "flagged for review  [dim]→ review.csv[/dim]")
         table.add_row(Text(str(t.skipped), style="grey50"), "skipped  [dim](dupes / already processed)[/dim]")
         table.add_row(Text(str(t.errors), style="bright_red" if t.errors else "grey50"), "errors")
@@ -274,6 +277,9 @@ class RunUI:
         elif status == "medium":
             self.tally.added += 1
             self.tally.medium += 1
+        elif status == "guess":
+            self.tally.added += 1
+            self.tally.guesses += 1
         elif status == "review":
             self.tally.review += 1
         elif status == "skipped":
@@ -288,6 +294,7 @@ class RunUI:
         return (
             f"  [bright_green]✓{t.added}[/]  "
             f"[yellow]●{t.medium}[/]  "
+            f"[magenta]≈{t.guesses}[/]  "
             f"[red]⚑{t.review}[/]  "
             f"[grey50]↻{t.skipped}[/]  "
             f"[bright_red]✗{t.errors}[/]"
