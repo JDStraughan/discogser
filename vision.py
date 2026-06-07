@@ -298,7 +298,21 @@ def _parse_extraction(data: dict) -> AlbumExtraction:
 
 
 def validate_group_roles(roles: tuple[str, ...]) -> bool:
-    """Pure check: a valid group has exactly one front, one back, one runout.
+    """Pure sequence-integrity check, anchored on the runout.
+
+    The failure we must catch is *drift* — a missing or extra shot that
+    misaligns every later album. The macro dead-wax (runout) shot is the
+    reliable anchor for that: a valid group is two covers followed by a runout.
+
+    We deliberately do NOT require distinguishing front from back: on many
+    records (classical, easy-listening, text-heavy sleeves) the model genuinely
+    can't tell a front from a back, and that confusion is harmless to both drift
+    detection and extraction (all three images are read together). Any real
+    drift still shows up here as a runout landing outside shot 3, or a cover
+    landing in shot 3.
 
     Used both after extraction and by the self-test (no API required)."""
-    return sorted(roles) == sorted(r.value for r in EXPECTED_ORDER)
+    if len(roles) != 3:
+        return False
+    runout = Role.RUNOUT.value
+    return roles[2] == runout and roles[0] != runout and roles[1] != runout

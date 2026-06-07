@@ -69,7 +69,7 @@ cp .env.example .env
 |---|---|
 | `ANTHROPIC_API_KEY` | Your Anthropic API key. |
 | `ANTHROPIC_MODEL` | Vision model. Defaults to `claude-sonnet-4-6` if unset. |
-| `DISCOGS_TOKEN` | Personal access token — [Discogs developer settings](https://www.discogs.com/settings/developer). |
+| `DISCOGS_TOKEN` | Personal access token — [Discogs developer settings](https://www.discogs.com/settings/developers). |
 | `DISCOGS_USERNAME` | Your Discogs username. |
 | `DISCOGS_FOLDER` | Collection folder to add to (default `Uncategorized`). |
 | `USER_AGENT` | **Required.** A unique, descriptive UA with contact info, e.g. `discogser/1.0 +mailto:you@example.com`. Discogs throttles hard without one. |

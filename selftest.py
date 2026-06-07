@@ -64,17 +64,22 @@ def test_leftover_detection() -> None:
 
 
 def test_role_validation() -> None:
-    # A clean group has exactly one of each.
+    # Valid: two covers then a runout. Front/back order doesn't matter, and the
+    # model is allowed to be unsure which cover is which.
     assert validate_group_roles(("front", "back", "runout")) is True
-    assert validate_group_roles(("runout", "front", "back")) is True
+    assert validate_group_roles(("back", "front", "runout")) is True
+    # The real-world case that used to false-halt: classical sleeve whose front
+    # reads as a back. Still two covers + runout -> valid.
+    assert validate_group_roles(("back", "back", "runout")) is True
 
-    # Drift from a MISSED shot: the window slides and you get a duplicate role.
-    assert validate_group_roles(("front", "runout", "front")) is False
-    # Drift from an EXTRA shot: two of the same role inside one window.
-    assert validate_group_roles(("front", "front", "back")) is False
-    # Missing a role entirely.
-    assert validate_group_roles(("front", "back", "back")) is False
-    print("✓ role validation: clean group accepted, drifted groups rejected")
+    # True drift: the runout is the anchor and it's not in shot 3.
+    assert validate_group_roles(("front", "runout", "back")) is False   # missed shot
+    assert validate_group_roles(("runout", "front", "back")) is False   # window slid
+    # Extra cover pushed the runout out of the group entirely.
+    assert validate_group_roles(("front", "back", "front")) is False
+    # Two runouts in one window (duplicate/extra runout shot).
+    assert validate_group_roles(("runout", "back", "runout")) is False
+    print("✓ role validation: covers+runout accepted, true drift rejected")
 
 
 def main() -> int:

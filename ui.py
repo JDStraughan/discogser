@@ -218,7 +218,7 @@ class RunUI:
         body.append(f"{list(roles)}", style="yellow")
         body.append("\n")
         body.append("expect  ", style="dim")
-        body.append("one front, one back, one runout", style="dim")
+        body.append("two covers, then a runout (macro dead-wax) as shot 3", style="dim")
         body.append("\n\n")
         body.append(
             "Halting so nothing wrong gets added. Fix the folder and re-run.",
