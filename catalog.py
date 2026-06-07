@@ -46,8 +46,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--guess",
         action="store_true",
         help="Aggressive: also add the best candidate for LOW-confidence albums "
-        "(when a release was pinned but the runout didn't confirm it), instead "
-        "of parking them in review.csv. Marked ≈ GUESS.",
+        "(text-only, no runout or cover confirmation), instead of parking them "
+        "in review.csv. Marked ≈ GUESS.",
+    )
+    parser.add_argument(
+        "--no-cover",
+        action="store_true",
+        help="Disable visual cover-art confirmation (saves a vision call per "
+        "unconfirmed album, but catalogs fewer records by default).",
     )
     return parser
 
@@ -70,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         commit=commit,
         folder_name=args.folder,
         guess=args.guess,
+        cover_match=not args.no_cover,
         console=console,
     )
 

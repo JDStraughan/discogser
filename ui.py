@@ -36,6 +36,7 @@ from rich.text import Text
 # Status taxonomy -> (glyph, badge label, accent color).
 _STATUS = {
     "high":    ("✓", "HIGH",   "bright_green"),
+    "cover":   ("◉", "COVER",  "cyan"),
     "medium":  ("✓", "MEDIUM", "yellow"),
     "guess":   ("≈", "GUESS",  "magenta"),
     "review":  ("⚑", "LOW",    "red"),
@@ -49,7 +50,8 @@ _VALUE_WIDTH = 8  # "$1,234" / "$24.99"
 
 @dataclass
 class Tally:
-    added: int = 0      # HIGH + MEDIUM + guesses (added, or would-add in dry-run)
+    added: int = 0      # everything added (or would-add in dry-run)
+    covers: int = 0     # subset of added: cover-art confirmed
     medium: int = 0     # subset of added
     guesses: int = 0    # subset of added (--guess mode)
     review: int = 0     # LOW -> review.csv
@@ -252,7 +254,13 @@ class RunUI:
         table.add_column(justify="right", style="bold")
         table.add_column(justify="left")
 
-        breakdown = f"incl. {t.medium} medium, {t.guesses} guess" if t.guesses else f"incl. {t.medium} medium"
+        bits = []
+        if t.covers:
+            bits.append(f"{t.covers} cover")
+        bits.append(f"{t.medium} medium")
+        if t.guesses:
+            bits.append(f"{t.guesses} guess")
+        breakdown = "incl. " + ", ".join(bits)
         table.add_row(Text(str(t.added), style="bright_green"), f"{verb}  [dim]({breakdown})[/dim]")
         table.add_row(Text(str(t.review), style="red"), "flagged for review  [dim]→ review.csv[/dim]")
         table.add_row(Text(str(t.skipped), style="grey50"), "skipped  [dim](dupes / already processed)[/dim]")
@@ -274,6 +282,9 @@ class RunUI:
     def _update_tally(self, status: str) -> None:
         if status == "high":
             self.tally.added += 1
+        elif status == "cover":
+            self.tally.added += 1
+            self.tally.covers += 1
         elif status == "medium":
             self.tally.added += 1
             self.tally.medium += 1
@@ -293,7 +304,7 @@ class RunUI:
         t = self.tally
         return (
             f"  [bright_green]✓{t.added}[/]  "
-            f"[yellow]●{t.medium}[/]  "
+            f"[cyan]◉{t.covers}[/]  "
             f"[magenta]≈{t.guesses}[/]  "
             f"[red]⚑{t.review}[/]  "
             f"[grey50]↻{t.skipped}[/]  "

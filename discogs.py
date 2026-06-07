@@ -58,9 +58,17 @@ class DiscogsClient:
                 "Accept": "application/json",
             },
         )
+        # Separate client for the image CDN: only a User-Agent (no API token
+        # leaked to the CDN host), follows redirects.
+        self._img = httpx.Client(
+            timeout=timeout,
+            follow_redirects=True,
+            headers={"User-Agent": user_agent},
+        )
 
     def close(self) -> None:
         self._client.close()
+        self._img.close()
 
     def __enter__(self) -> "DiscogsClient":
         return self
@@ -141,6 +149,26 @@ class DiscogsClient:
             )
         except OSError:
             pass
+
+    def fetch_image(self, url: str) -> bytes | None:
+        """Download a cover image (cached on disk by URL). Returns None on any
+        failure — cover matching is best-effort and must never crash a run."""
+        if not url:
+            return None
+        path = self._cache_path("img", url)
+        if path.exists():
+            try:
+                return path.read_bytes()
+            except OSError:
+                return None
+        try:
+            resp = self._img.get(url)
+            if resp.status_code != 200 or not resp.content:
+                return None
+            path.write_bytes(resp.content)
+            return resp.content
+        except (httpx.HTTPError, OSError):
+            return None
 
     # -- public endpoints ---------------------------------------------------
 

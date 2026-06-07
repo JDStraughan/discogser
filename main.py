@@ -18,7 +18,13 @@ from discogs import DiscogsClient, DiscogsError, have_count
 from ledger import Ledger, album_key
 from matching import agrees, best_runout_match, front_back_agreement, is_runout_hit
 from ui import RunUI
-from vision import AlbumExtraction, VisionExtractor, validate_group_roles
+from vision import (
+    AlbumExtraction,
+    VisionExtractor,
+    prepare_cover,
+    prepare_cover_bytes,
+    validate_group_roles,
+)
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".tif", ".tiff", ".webp"}
 
@@ -33,14 +39,6 @@ class Confidence(str, Enum):
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
     LOW = "LOW"
-
-
-# Map a Confidence to the ui status key.
-_STATUS_KEY = {
-    Confidence.HIGH: "high",
-    Confidence.MEDIUM: "medium",
-    Confidence.LOW: "review",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +113,7 @@ class Resolution:
     discogs_url: str | None
     alternates: list[dict] = field(default_factory=list)
     is_guess: bool = False
+    cover_confirmed: bool = False
     note: str = ""
     # Enriched from the chosen release detail (for display + reports).
     year: str = ""
@@ -192,10 +191,22 @@ class Resolver:
     """Runs the Discogs search priority ladder and disambiguates to an exact
     pressing using the runout, falling back to master versions."""
 
-    def __init__(self, client: DiscogsClient) -> None:
-        self._client = client
+    # How many distinct candidate covers to send to the cover-matcher.
+    MAX_COVER_CANDIDATES = 4
 
-    def resolve(self, ext: AlbumExtraction) -> Resolution:
+    def __init__(
+        self,
+        client: DiscogsClient,
+        extractor: VisionExtractor | None = None,
+        cover_match: bool = True,
+    ) -> None:
+        self._client = client
+        self._extractor = extractor
+        self._cover_match = cover_match and extractor is not None
+        self._front_path: Path | None = None
+
+    def resolve(self, ext: AlbumExtraction, front_path: Path | None = None) -> Resolution:
+        self._front_path = front_path
         res = self._resolve(ext)
         return self._enrich(res)
 
@@ -358,8 +369,8 @@ class Resolver:
                 discogs_url=_candidate_url(chosen),
                 note="Single strong catno candidate; front/back agree.",
             )
-        # Ambiguous — try the versions fallback before giving up.
-        return self._versions_fallback(results, ext)
+        # Ambiguous — confirm by cover art, else guess.
+        return self._confirm_or_guess(results, ext)
 
     def _from_title(self, results: list[dict], ext: AlbumExtraction) -> Resolution | None:
         best_result, best_match = self._disambiguate_by_runout(results, ext)
@@ -373,7 +384,64 @@ class Resolver:
                 discogs_url=_candidate_url(chosen),
                 alternates=_alternates(results, chosen),
             )
+        return self._confirm_or_guess(results, ext)
+
+    def _confirm_or_guess(
+        self, results: list[dict], ext: AlbumExtraction
+    ) -> Resolution | None:
+        """Tier 2/3: the runout didn't confirm the pressing. Try to confirm the
+        *album* visually by cover art (-> MEDIUM, right album). Failing that,
+        fall back to a text-only best guess (-> LOW)."""
+        plausible = self._plausible(results, ext)
+        confirmed = self._cover_confirm(plausible, ext)
+        if confirmed:
+            chosen = self._highest_have(confirmed)  # best pressing among matches
+            return Resolution(
+                confidence=Confidence.MEDIUM,
+                signal="cover match",
+                release_id=int(chosen["id"]),
+                title=_title_of(chosen),
+                discogs_url=_candidate_url(chosen),
+                alternates=_alternates(results, chosen),
+                cover_confirmed=True,
+                note="Front cover visually confirmed; exact pressing may differ.",
+            )
         return self._versions_fallback(results, ext)
+
+    def _cover_confirm(
+        self, results: list[dict], ext: AlbumExtraction
+    ) -> list[dict]:
+        """Return the subset of candidates whose cover art the model confirms
+        matches the photographed front. Best-effort: any failure -> []."""
+        if not self._cover_match or self._front_path is None or self._extractor is None:
+            return []
+        # Collect up to N distinct candidate covers.
+        picked: list[dict] = []
+        thumbs: list[str] = []
+        seen: set[str] = set()
+        for r in results:
+            url = r.get("cover_image") or r.get("thumb") or ""
+            if not url or url in seen:
+                continue
+            data = self._client.fetch_image(url)
+            if not data:
+                continue
+            try:
+                thumbs.append(prepare_cover_bytes(data))
+            except Exception:
+                continue
+            seen.add(url)
+            picked.append(r)
+            if len(picked) >= self.MAX_COVER_CANDIDATES:
+                break
+        if not picked:
+            return []
+        try:
+            front_b64 = prepare_cover(self._front_path)
+            verdict = self._extractor.match_covers(front_b64, thumbs)
+        except Exception:
+            return []
+        return [picked[i] for i in verdict.matches if 0 <= i < len(picked)]
 
     def _plausible(self, results: list[dict], ext: AlbumExtraction) -> list[dict]:
         """Drop obviously-unrelated broad-search hits before guessing: keep only
@@ -482,6 +550,7 @@ def run(
     commit: bool,
     folder_name: str | None,
     guess: bool = False,
+    cover_match: bool = True,
     console: Console | None = None,
 ) -> int:
     """Process a folder of photos. Returns a process exit code (0 ok)."""
@@ -522,7 +591,7 @@ def run(
         extractor = VisionExtractor(
             api_key=config.anthropic_api_key, model=config.anthropic_model
         )
-        resolver = Resolver(client)
+        resolver = Resolver(client, extractor=extractor, cover_match=cover_match)
 
         with ui:
             ui.header(target_folder, folder_id, len(owned))
@@ -572,7 +641,10 @@ def run(
                     return 1
 
                 try:
-                    res = resolver.resolve(ext)
+                    # group[0] is the physical front shot (per the capture
+                    # contract), even if vision labeled it a back — use it for
+                    # cover-art confirmation.
+                    res = resolver.resolve(ext, front_path=group[0])
                 except DiscogsError as exc:
                     ui.album(
                         status="error",
@@ -644,8 +716,12 @@ def run(
                     )
                     continue
 
-                if auto_add:
-                    status = _STATUS_KEY[res.confidence]
+                if res.confidence == Confidence.HIGH:
+                    status = "high"
+                elif res.cover_confirmed:
+                    status = "cover"
+                elif res.confidence == Confidence.MEDIUM:
+                    status = "medium"
                 elif guess_add:
                     status = "guess"
                 else:
@@ -668,10 +744,7 @@ def run(
 
                 ledger.record(
                     key,
-                    status=("added" if res.confidence == Confidence.HIGH
-                            else "medium" if res.confidence == Confidence.MEDIUM
-                            else "guess" if guess_add
-                            else "review"),
+                    status=status,
                     release_id=res.release_id, title=res.title,
                     confidence=res.confidence.value, signal=res.signal,
                     committed=committed, data=_result_data(ext, group, res),
@@ -715,6 +788,7 @@ def _result_data(ext: AlbumExtraction, group, res: Resolution | None) -> dict:
             "release_id": res.release_id,
             "url": res.discogs_url,
             "is_guess": res.is_guess,
+            "cover_confirmed": res.cover_confirmed,
             "note": res.note,
             "year": res.year,
             "format": res.fmt,
@@ -738,6 +812,7 @@ def _results_row(ext: AlbumExtraction, res: Resolution, group) -> dict:
         "discogs_url": res.discogs_url or "",
         "alternates": "; ".join(a["url"] for a in res.alternates),
         "is_guess": "yes" if res.is_guess else "",
+        "cover_confirmed": "yes" if res.cover_confirmed else "",
         "runout_matrix": ext.runout.matrix,
         "runout_confidence": ext.runout.confidence,
         "images": "; ".join(p.name for p in group),
@@ -768,8 +843,8 @@ def _write_results_csv(photos_dir: Path, rows: list[dict]) -> None:
     fields = [
         "artist", "title", "year", "format", "value_usd", "num_for_sale",
         "release_id", "confidence", "signal", "discogs_url",
-        "alternates", "is_guess", "runout_matrix", "runout_confidence",
-        "images", "note",
+        "alternates", "is_guess", "cover_confirmed", "runout_matrix",
+        "runout_confidence", "images", "note",
     ]
     _write_csv(path, fields, rows)
 

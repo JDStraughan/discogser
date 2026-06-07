@@ -26,21 +26,35 @@ Per album, the pipeline:
    back label/catno/barcode/format/country/year/notes; and a literal,
    character-by-character transcription of the runout with a confidence flag.
    The same call independently classifies each image as front/back/runout.
-3. **Searches Discogs** in priority order, stopping when decisive:
-   `barcode` → `catno + artist` → `artist + title + format=Vinyl`.
+3. **Searches Discogs**, starting tight and relaxing only if nothing exact is
+   found: `barcode` → `catno + artist` → `artist + title + format=Vinyl` →
+   (looser fallbacks) catno alone, title-only, broad full-text. Artist credits
+   are reduced to the searchable primary artist first ("Norman Brooks with Al
+   Goodman and His Orchestra" → "Norman Brooks").
 4. **Disambiguates by runout** — fetches each candidate's release detail and
    fuzzy-matches your transcribed matrix against its `Matrix / Runout`
-   identifiers. A runout match is the strongest signal and overrides the rest.
-5. **Falls back** to the master's versions (highest community "have", US-biased)
-   only as a *guess* when nothing else resolves.
+   identifiers. A runout match pins the *exact pressing* and overrides the rest.
+5. **Confirms by cover art** — when the runout can't confirm the pressing, it
+   downloads each candidate's Discogs cover and asks Claude vision whether it's
+   the same album as your front-cover photo (robust to angle, glare, stickers).
+   A cover match confirms the *right album* (pressing may differ).
+6. **Falls back** to the master's most-common version (highest "have", US-biased)
+   as a text-only *guess* when neither runout nor cover resolves it.
 
-**Auto-add policy:**
+**Tiers — tight first, relax only as needed:**
 
-| Confidence | Trigger | Action |
-|---|---|---|
-| **HIGH** | barcode exact match, or runout matrix match | auto-add |
-| **MEDIUM** | single strong `catno + artist` candidate, front/back agree, runout unread | auto-add, logged as medium |
-| **LOW** | ambiguous / multiple candidates / illegible runout / not found | **not added** → written to `review.csv` with the best candidate link |
+| Tier | Confidence | Trigger | Action |
+|---|---|---|---|
+| **exact** | **HIGH** ✓ | barcode exact, or runout matrix match | auto-add (exact pressing) |
+| **cover** | **COVER** ◉ | front-cover photo visually matches a candidate's art | auto-add (right album, pressing may differ) |
+| **general** | **MEDIUM** ✓ | single strong `catno + artist`, front/back agree | auto-add |
+| **liberal** | **GUESS** ≈ | best text-only candidate, nothing confirmed it | add **only with `--guess`** |
+| — | **LOW** ⚑ | nothing plausible / not found | **not added** → `review.csv` |
+
+By default it adds everything it can pin exactly *or* confirm by cover — that's
+the bar for "it's the right album." Pure text guesses are held back unless you
+pass `--guess`. Disable the cover-vision step with `--no-cover` (saves a vision
+call per unconfirmed album).
 
 **Sequence integrity:** the order is not trusted blindly. Vision confirms every
 group is one front, one back, one runout. If a group doesn't match (a missed or
@@ -96,11 +110,14 @@ drifted groups (missed/extra shot) being rejected.
 # Dry run (default): process everything, write reports, add NOTHING.
 python catalog.py ./photos
 
-# Actually add HIGH/MEDIUM albums to your collection.
+# Actually add (exact + cover-confirmed albums) to your collection.
 python catalog.py ./photos --commit
 
-# Add to a specific folder by name.
-python catalog.py ./photos --commit --folder "New Arrivals"
+# Also commit text-only best-guesses (right album, maybe wrong pressing).
+python catalog.py ./photos --commit --guess
+
+# Add to a specific folder by name; skip the cover-vision step.
+python catalog.py ./photos --commit --folder "New Arrivals" --no-cover
 ```
 
 ### Watching it run
