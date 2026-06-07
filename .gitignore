@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Secrets & local config
+.env
+
+# Runtime artifacts
+.cache/
+ledger.sqlite3
+results.csv
+review.csv
+
+# OS
+.DS_Store

@@ -1,0 +1,10 @@
+# discogser — pinned dependencies (Python 3.11+)
+anthropic==0.69.0
+httpx==0.28.1
+Pillow==11.1.0
+rich==13.9.4
+python-dotenv==1.0.1
+rapidfuzz==3.10.1
+# Optional but recommended: lets Pillow read iPhone HEIC/HEIF photos.
+# If you only ever shoot JPEG/PNG you can drop this line.
+pillow-heif==0.21.0
