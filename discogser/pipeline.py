@@ -744,7 +744,8 @@ def run(
         target_folder = folder_name or config.discogs_folder
         try:
             folder_id = client.resolve_folder_id(target_folder)
-            owned = client.get_collection_release_ids()
+            with console.status("[dim]Reading your Discogs collection (for dedupe)...[/dim]"):
+                owned = client.get_collection_release_ids()
         except DiscogsError as exc:
             console.print(f"[red]Discogs setup failed:[/red] {exc}")
             return 2
