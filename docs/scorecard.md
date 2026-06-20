@@ -36,3 +36,20 @@ with the reason; they are not scored (per the RED TEAM cargo-cult veto).
 ## Exit criterion (applicable rubric)
 All "yes" rows green, zero regression on the floor (ruff/mypy/63 tests/0 vulns),
 fresh-adversary cold audit finds no unaddressed issue.
+
+## Loop 1 (after security + a11y pass)
+
+| Lane | Metric | Loop 1 | vs floor |
+|---|---|---|---|
+| Code | ruff / mypy / pytest | clean / clean / **69 passed** | +6 tests |
+| Security | response headers | CSP + nosniff + XFO + Referrer + COOP | FIXED |
+| Security | DNS-rebinding | Host allowlist (hardened parser) | FIXED |
+| Security | CSRF | `X-Requested-With` required on POSTs | FIXED |
+| Security | stored XSS | quote-safe `esc()` | FIXED (was a latent hole) |
+| Security | vuln deps / secrets / dead code | 0 / 0 / 0 | held |
+| A11y | keyboard / labels / live / alt | all present | FIXED |
+| A11y | contrast (AA) | min 5.82:1 (was 3.96:1) | FIXED |
+| UX | focus-visible / reduced-motion | present | FIXED |
+
+Fresh adversary (loop 1) returned BLOCK on the XSS; all findings fixed and
+re-verified. A second cold adversary re-audits in loop 2 to confirm SHIP.
