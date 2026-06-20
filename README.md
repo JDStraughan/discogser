@@ -74,6 +74,14 @@ not silently add the wrong records.
 
 Requires **Python 3.11+**.
 
+The quickest install (once published to PyPI) is a single command:
+
+```bash
+pipx install discogser        # or: pip install discogser
+```
+
+To run from a clone (and for development), install in a virtualenv:
+
 ```bash
 git clone https://github.com/JDStraughan/discogser.git
 cd discogser
@@ -82,7 +90,11 @@ source .venv/bin/activate
 
 pip install -e .            # installs the `discogser` command
 # pip install -e ".[heic]"  # add this if you shoot iPhone HEIC photos
+```
 
+Then create your config:
+
+```bash
 cp .env.example .env        # then fill it in (see below)
 ```
 
