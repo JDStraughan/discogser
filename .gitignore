@@ -8,6 +8,9 @@ venv/
 # Secrets & local config
 .env
 
+# Your photos — never commit these (they carry EXIF GPS / personal data)
+photos/
+
 # Runtime artifacts
 .cache/
 ledger.sqlite3

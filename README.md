@@ -193,3 +193,11 @@ halts the run, and the close-out is a color-coded summary panel.
 | `ledger.py` | SQLite ledger keyed by image-content hash. |
 | `config.py` | `.env` / environment loading. |
 | `selftest.py` | Offline checks for grouping + sequence-integrity validation. |
+
+## License
+
+Released into the public domain under [The Unlicense](LICENSE) — do whatever you
+want with it, no attribution required.
+
+> Note: `photos/` is git-ignored. Your album photos are personal data (phone
+> photos carry EXIF GPS); keep them out of the repo.
