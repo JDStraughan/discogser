@@ -52,4 +52,23 @@ fresh-adversary cold audit finds no unaddressed issue.
 | UX | focus-visible / reduced-motion | present | FIXED |
 
 Fresh adversary (loop 1) returned BLOCK on the XSS; all findings fixed and
-re-verified. A second cold adversary re-audits in loop 2 to confirm SHIP.
+re-verified.
+
+## Loop 2 (confirming adversary) - EXIT: GREEN
+
+A second, independent cold adversary re-audited and returned **SHIP**: XSS
+neutralized, CSRF blocked, host guard unbypassable, no path-traversal/SSRF,
+contrast passes. Its three non-blocker findings (keyboard "pick" control, a
+streaming live region, upload temp-dir cleanup) were also fixed and tested.
+
+| Lane | Loop 2 | vs floor |
+|---|---|---|
+| Code | ruff clean / mypy clean / **70 passed** | +7 tests |
+| Security | XSS, CSRF, DNS-rebinding, headers, SSRF, 0 vulns/secrets | all green |
+| A11y | keyboard (incl. pick control), labels, live regions, alt, AA contrast | all green |
+| UX | every state, focus-visible, reduced-motion, temp-dir hygiene | all green |
+
+**Exit met:** applicable rubric green, zero regression on the floor
+(63 -> 70 tests, monotonic), fresh adversary found no unaddressed issue.
+Stopped at loop 2 (under the 5-loop cap). Cut lanes (SEO/AEO/social/edge/
+Lighthouse number) remain N/A for a localhost CLI + single-user web tool.

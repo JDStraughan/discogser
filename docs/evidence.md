@@ -58,6 +58,18 @@ Cold auditor (never saw the work) returned verdict BLOCK on a real XSS. Fixed:
 - Adversary could NOT break: download path traversal, upload traversal, SSRF,
   CSV injection, ledger SQL, token redaction (all confirmed solid).
 
+## Loop 2 - second fresh adversary: verdict SHIP, minor findings fixed
+A different cold auditor confirmed the loop-1 fixes hold (XSS neutralized, CSRF
+blocked, host guard solid, no traversal/SSRF) and returned **SHIP**. Its three
+non-blocker findings were still fixed:
+- **MEDIUM** the candidate "pick" expander was a `<span onclick>` (mouse-only,
+  WCAG 2.1.1/4.1.2) -> real `<button>` with `aria-expanded`. Test asserts it.
+- **LOW** streaming rows had no live region (4.1.3) -> visually-hidden
+  `aria-live` `#srprogress` announces each album.
+- **LOW** upload temp dirs leaked in /tmp -> bounded run retention reaps them,
+  guarded by `_is_reapable()` (only `discogser_up_*` under the temp root; never a
+  user folder). Test `test_only_upload_temp_dirs_are_reapable`.
+
 ## Regression budget
 floor metrics never dropped across all commits: ruff clean, mypy clean,
-pip-audit 0 vulns, test count **63 -> 69** (monotonic up). No metric regressed.
+pip-audit 0 vulns, test count **63 -> 70** (monotonic up). No metric regressed.
