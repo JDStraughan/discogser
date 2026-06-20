@@ -151,6 +151,9 @@ def test_web_ui_accessibility_attributes():
     assert "prefers-reduced-motion" in page                     # motion respected
     assert ":focus-visible" in page and "sr-only" in page
     assert "#6b7383" not in page  # the 3.96:1 (AA-failing) grey is gone
+    # the candidate "pick" control is a real keyboard-operable button
+    assert '<button type="button" class="resolve"' in page and "aria-expanded" in page
+    assert 'id="srprogress"' in page  # streaming rows announced to AT
 
 
 def test_is_localhost_parser():

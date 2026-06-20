@@ -373,7 +373,8 @@ _PAGE = """<!doctype html>
   .summary b { font-size:18px; }
   .pill { display:inline-block; padding:1px 8px; border-radius:20px; font-size:11px;
           background:#232733; color:#cdd3dd; margin-left:6px; }
-  .resolve { color:#d46fd4; cursor:pointer; } .resolve:hover { text-decoration:underline; }
+  .resolve { color:#d46fd4; cursor:pointer; background:none; border:0; padding:0; font:inherit; }
+  .resolve:hover { text-decoration:underline; }
   .det > td { background:#11141c; }
   .cands { display:flex; flex-wrap:wrap; gap:12px; }
   .cand { width:150px; background:#151823; border:1px solid #232733; border-radius:8px; padding:8px; }
@@ -417,6 +418,7 @@ _PAGE = """<!doctype html>
 
   <div class="meta" id="meta" aria-live="polite"></div>
   <div class="banner" id="banner" role="alert"></div>
+  <div id="srprogress" class="sr-only" aria-live="polite"></div>
 
   <table id="grid" style="display:none">
     <thead><tr><th>#</th><th>conf</th><th>artist - title</th>
@@ -433,7 +435,9 @@ const BADGE = {high:"HIGH",cover:"COVER",medium:"MEDIUM",guess:"GUESS",review:"L
 let upload = null, runId = null, currentFolder = "";
 const rowData = {};
 function esc(s){ return (s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-function toggleDet(i){ const d=document.getElementById("det-"+i); if(d) d.style.display = d.style.display==="none"?"table-row":"none"; }
+function toggleDet(i){ const d=document.getElementById("det-"+i); if(!d) return;
+  const open=d.style.display==="none"; d.style.display=open?"table-row":"none";
+  const b=document.getElementById("pickbtn-"+i); if(b) b.setAttribute("aria-expanded", open?"true":"false"); }
 async function pick(i, ci){
   const d=rowData[i], c=d.cands[ci];
   const btns=document.querySelectorAll("#det-"+i+" button"); btns.forEach(b=>b.disabled=true);
@@ -500,13 +504,14 @@ $("#go").addEventListener("click",async()=>{
       const val=(ev.value&&ev.value!=="-")?`<span class="price">${ev.value}</span>`:"-";
       const cands=ev.candidates||[];
       const sigCell=`<td style="color:#8b93a1">${esc(ev.signal)}`+
-        (cands.length?` <span class="resolve" onclick="toggleDet(${ev.index})">· pick (${cands.length})</span>`:"")+`</td>`;
+        (cands.length?` <button type="button" class="resolve" id="pickbtn-${ev.index}" aria-expanded="false" onclick="toggleDet(${ev.index})">· pick (${cands.length})</button>`:"")+`</td>`;
       const tr=document.createElement("tr"); tr.id="row-"+ev.index;
       tr.innerHTML=`<td class="num">${ev.index}/${ev.total}</td>`+
         `<td class="badge ${ev.status}" id="badge-${ev.index}">${BADGE[ev.status]||ev.status}</td>`+
         `<td class="album"><b>${esc(ev.artist)}</b>${ev.title?" - "+esc(ev.title):""}</td>`+
         `<td id="rel-${ev.index}">${rel}</td><td class="val">${val}</td>`+sigCell;
       $("#rows").appendChild(tr);
+      $("#srprogress").textContent=ev.index+" of "+ev.total+", "+(BADGE[ev.status]||ev.status)+": "+ev.artist+(ev.title?" "+ev.title:"");
       if(cands.length){
         rowData[ev.index]={key:ev.key, cands};
         const det=document.createElement("tr"); det.id="det-"+ev.index; det.className="det"; det.style.display="none";
