@@ -60,3 +60,21 @@ def test_guess_when_cover_finds_nothing(front_path):
 def test_not_found(front_path):
     res = Resolver(MockClient()).resolve(mkext(), front_path)
     assert res.confidence is Confidence.LOW and res.release_id is None and res.signal == "not found"
+
+
+def test_guess_carries_candidate_cards(front_path):
+    # A flagged guess should bring its candidate pool along for the resolve UI.
+    client = MockClient(
+        {"broad": [
+            rel(40, have=5, cover="https://i.discogs.com/c1.jpg", title="A - One"),
+            rel(41, have=9, cover="https://i.discogs.com/c2.jpg", title="A - Two"),
+        ]},
+        {40: rel(40, have=5), 41: rel(41, have=9)},
+    )
+    res = Resolver(client, extractor=MockExtractor(cover_indices=()), cover_match=True).resolve(
+        mkext(artist="A", title="T"), front_path
+    )
+    assert res.is_guess and len(res.candidates) >= 1
+    card = res.candidates[0]
+    assert card["id"] in (40, 41)
+    assert {"id", "title", "thumb", "year", "country", "format", "url"} <= set(card)

@@ -60,7 +60,7 @@ class Reporter(Protocol):
     def header(self, folder_name: str, folder_id: int, owned: int) -> None: ...
     def album(
         self, *, status: str, artist: str, title: str, release_id: int | None,
-        signal: str, committed: bool, value: str = "-",
+        signal: str, committed: bool, value: str = "-", extra: dict | None = None,
     ) -> None: ...
     def drift_halt(self, names: tuple[str, str, str], roles: tuple[str, ...]) -> None: ...
     def leftovers(self, names: list[str]) -> None: ...
@@ -171,9 +171,12 @@ class RunUI:
         signal: str,
         committed: bool,
         value: str = "-",
+        extra: dict | None = None,
     ) -> None:
         """Render one finished album and advance the bar. `status` is one of the
-        keys in _STATUS. `value` is a pre-formatted price string (or '-')."""
+        keys in _STATUS. `value` is a pre-formatted price string (or '-'). `extra`
+        carries front-end-specific payload (e.g. resolve candidates) the terminal
+        UI ignores."""
         self._done += 1
         self._update_tally(status)
         glyph, label, color = _STATUS[status]

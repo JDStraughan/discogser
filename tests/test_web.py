@@ -89,3 +89,23 @@ def test_download_unknown_run_is_404():
     client = create_app().test_client()
     assert client.get("/download/deadbeef/results.csv").status_code == 404
     assert client.get("/download/deadbeef/secrets.txt").status_code == 404
+
+
+def test_album_event_carries_resolve_candidates():
+    q: queue.Queue = queue.Queue()
+    with WebReporter(total=1, commit=False, events=q) as r:
+        r.album(
+            status="guess", artist="A", title="T", release_id=5, signal="best guess",
+            committed=False, value="-",
+            extra={"key": "abc123", "candidates": [{"id": 7, "title": "X"}]},
+        )
+    ev = q.get()
+    assert ev["key"] == "abc123"
+    assert ev["candidates"] == [{"id": 7, "title": "X"}]
+
+
+def test_resolve_rejects_bad_release_id():
+    # These fail before any config/network, so they never touch a real account.
+    client = create_app().test_client()
+    assert client.post("/resolve", json={}).status_code == 400
+    assert client.post("/resolve", json={"release_id": "not-an-int"}).status_code == 400

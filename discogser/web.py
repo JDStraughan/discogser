@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, ConfigError
+from .discogs import DiscogsClient, DiscogsError
+from .ledger import Ledger
 from .pipeline import IMAGE_EXTENSIONS, run
 
 logger = logging.getLogger(__name__)
@@ -79,17 +81,20 @@ class WebReporter:
 
     def album(
         self, *, status: str, artist: str, title: str, release_id: int | None,
-        signal: str, committed: bool, value: str = "-",
+        signal: str, committed: bool, value: str = "-", extra: dict | None = None,
     ) -> None:
         self._done += 1
         _bump(self.counts, status)
         url = f"https://www.discogs.com/release/{release_id}" if release_id else ""
-        self._q.put({
+        event = {
             "type": "album", "index": self._done, "total": self.total,
             "status": status, "artist": artist, "title": title,
             "release_id": release_id, "url": url, "signal": signal,
             "value": value, "committed": committed,
-        })
+            "candidates": (extra or {}).get("candidates", []),
+            "key": (extra or {}).get("key"),
+        }
+        self._q.put(event)
 
     def drift_halt(self, names: tuple[str, str, str], roles: tuple[str, ...]) -> None:
         self._q.put({"type": "drift", "names": list(names), "roles": list(roles)})
@@ -196,6 +201,46 @@ def create_app() -> Any:
 
         return Response(gen(), mimetype="text/event-stream")
 
+    @app.post("/resolve")
+    def resolve():
+        """Add a user-chosen pressing for a flagged album, and mark the ledger
+        so a later run won't re-flag it."""
+        data = request.get_json(silent=True) or {}
+        try:
+            release_id = int(data.get("release_id"))
+        except (TypeError, ValueError):
+            return jsonify(error="A release id is required."), 400
+        try:
+            config = Config.load()
+        except ConfigError as exc:
+            return jsonify(error=str(exc)), 400
+        folder_name = (data.get("folder_name") or config.discogs_folder).strip()
+        try:
+            with DiscogsClient(
+                token=config.discogs_token, username=config.discogs_username,
+                user_agent=config.user_agent,
+            ) as client:
+                folder_id = client.resolve_folder_id(folder_name)
+                client.add_to_collection(folder_id, release_id)
+        except DiscogsError as exc:
+            return jsonify(error=str(exc)), 502
+
+        key = data.get("key")
+        if key:
+            try:
+                with Ledger() as ledger:
+                    ledger.record(
+                        key, status="added", release_id=release_id,
+                        title=data.get("title") or "", confidence="MANUAL",
+                        signal="resolved in browser", committed=True,
+                        data={"manual_resolve": True},
+                    )
+            except Exception:  # ledger is best-effort; the add already succeeded
+                logger.exception("ledger update after resolve failed")
+
+        return jsonify(ok=True, release_id=release_id,
+                       url=f"https://www.discogs.com/release/{release_id}")
+
     @app.get("/download/<run_id>/<name>")
     def download(run_id: str, name: str):
         if name not in ("results.csv", "review.csv"):
@@ -266,6 +311,14 @@ _PAGE = """<!doctype html>
   .summary b { font-size:18px; }
   .pill { display:inline-block; padding:1px 8px; border-radius:20px; font-size:11px;
           background:#232733; color:#cdd3dd; margin-left:6px; }
+  .resolve { color:#d46fd4; cursor:pointer; } .resolve:hover { text-decoration:underline; }
+  .det > td { background:#11141c; }
+  .cands { display:flex; flex-wrap:wrap; gap:12px; }
+  .cand { width:150px; background:#151823; border:1px solid #232733; border-radius:8px; padding:8px; }
+  .cand img { width:100%; height:130px; object-fit:contain; background:#0f1115; border-radius:4px; }
+  .cand .cmeta { font-size:11px; color:#9aa4b2; margin:6px 0; min-height:42px; }
+  .cand .cmeta b { color:#e6e6e6; }
+  .cand button { width:100%; padding:6px; font-size:11px; }
 </style></head>
 <body>
 <header><div class="wrap" style="padding:0">
@@ -306,8 +359,22 @@ _PAGE = """<!doctype html>
 <script>
 const $ = s => document.querySelector(s);
 const BADGE = {high:"HIGH",cover:"COVER",medium:"MEDIUM",guess:"GUESS",review:"LOW",skipped:"DUP",error:"ERR"};
-let upload = null, runId = null;
+let upload = null, runId = null, currentFolder = "";
+const rowData = {};
 function esc(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function toggleDet(i){ const d=document.getElementById("det-"+i); if(d) d.style.display = d.style.display==="none"?"table-row":"none"; }
+async function pick(i, ci){
+  const d=rowData[i], c=d.cands[ci];
+  const btns=document.querySelectorAll("#det-"+i+" button"); btns.forEach(b=>b.disabled=true);
+  try{
+    const r=await (await fetch("/resolve",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({release_id:c.id, key:d.key, folder_name:currentFolder, title:c.title})})).json();
+    if(r.error){ banner(r.error); btns.forEach(b=>b.disabled=false); return; }
+    const b=document.getElementById("badge-"+i); b.textContent="ADDED"; b.className="badge high";
+    document.getElementById("rel-"+i).innerHTML=`<a href="${r.url}" target="_blank">r${r.release_id}</a>`;
+    document.getElementById("det-"+i).style.display="none";
+  }catch(err){ banner("Add failed: "+err); btns.forEach(b=>b.disabled=false); }
+}
 function banner(m){ const b=$("#banner"); b.textContent=m; b.classList.add("show"); }
 function ready(){ $("#go").disabled = !(upload || $("#folder").value.trim()); }
 
@@ -351,17 +418,32 @@ $("#go").addEventListener("click",async()=>{
   es.onmessage=m=>{
     const ev=JSON.parse(m.data);
     if(ev.type==="header"){
+      currentFolder = ev.folder || "";
       $("#meta").textContent=`${ev.commit?"COMMIT":"DRY-RUN"} · ${ev.total} albums · folder ${esc(ev.folder)} · you own ${ev.owned}`;
       $("#grid").style.display="table";
     } else if(ev.type==="album"){
       const rel=ev.url?`<a href="${ev.url}" target="_blank">r${ev.release_id}</a>`:"-";
       const val=(ev.value&&ev.value!=="-")?`<span class="price">${ev.value}</span>`:"-";
-      const tr=document.createElement("tr");
+      const cands=ev.candidates||[];
+      const sigCell=`<td style="color:#8b93a1">${esc(ev.signal)}`+
+        (cands.length?` <span class="resolve" onclick="toggleDet(${ev.index})">· pick (${cands.length})</span>`:"")+`</td>`;
+      const tr=document.createElement("tr"); tr.id="row-"+ev.index;
       tr.innerHTML=`<td class="num">${ev.index}/${ev.total}</td>`+
-        `<td class="badge ${ev.status}">${BADGE[ev.status]||ev.status}</td>`+
+        `<td class="badge ${ev.status}" id="badge-${ev.index}">${BADGE[ev.status]||ev.status}</td>`+
         `<td class="album"><b>${esc(ev.artist)}</b>${ev.title?" - "+esc(ev.title):""}</td>`+
-        `<td>${rel}</td><td class="val">${val}</td><td style="color:#8b93a1">${esc(ev.signal)}</td>`;
+        `<td id="rel-${ev.index}">${rel}</td><td class="val">${val}</td>`+sigCell;
       $("#rows").appendChild(tr);
+      if(cands.length){
+        rowData[ev.index]={key:ev.key, cands};
+        const det=document.createElement("tr"); det.id="det-"+ev.index; det.className="det"; det.style.display="none";
+        det.innerHTML=`<td colspan="6"><div class="sub" style="margin-bottom:8px">which pressing is yours? click to add it to your collection.</div>`+
+          `<div class="cands">`+cands.map((c,i)=>
+            `<div class="cand"><img src="${esc(c.thumb)}" loading="lazy" onerror="this.style.visibility='hidden'">`+
+            `<div class="cmeta"><b>${esc(c.title)}</b><br>${esc([c.year,c.country,c.format].filter(Boolean).join(' · '))}</div>`+
+            `<button onclick="pick(${ev.index},${i})">Add to Discogs</button></div>`).join("")+
+          `</div></td>`;
+        $("#rows").appendChild(det);
+      }
     } else if(ev.type==="drift"){ banner("Sequence drift at "+ev.names.join(" .. ")+". A shot is missing or extra; fix and re-run."); }
     else if(ev.type==="leftovers"){ banner("Trailing photos that don't complete a set of 3: "+ev.names.join(", ")); }
     else if(ev.type==="fatal"){ banner("Run failed: "+ev.message); }

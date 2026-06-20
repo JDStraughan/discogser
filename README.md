@@ -160,9 +160,15 @@ discogser-web             # opens on http://127.0.0.1:8765
 
 Drag your photos onto the page (or paste a folder path), choose dry run or
 commit, and watch the same matching engine stream results into a live,
-color-coded table with clickable Discogs links and downloadable reports. The
-server binds to localhost only, since it uses your tokens; do not expose it to a
-network.
+color-coded table with clickable Discogs links and downloadable reports.
+
+For the flagged stragglers, you do not have to juggle Discogs tabs: each one
+shows a **pick** link that opens its candidate covers right in the table. Click
+the pressing that matches your record and it is added to your collection on the
+spot (and recorded so a later run will not re-flag it).
+
+The server binds to localhost only, since it uses your tokens; do not expose it
+to a network.
 
 ### Watching it run
 

@@ -122,6 +122,9 @@ class Resolution:
     title: str | None
     discogs_url: str | None
     alternates: list[dict] = field(default_factory=list)
+    # Candidate cards (cover thumb + metadata) for the interactive resolve loop,
+    # populated only for flagged guesses.
+    candidates: list[dict] = field(default_factory=list)
     is_guess: bool = False
     cover_confirmed: bool = False
     note: str = ""
@@ -150,6 +153,22 @@ def _candidate_url(result: dict) -> str:
 
 def _title_of(result: dict) -> str:
     return result.get("title", "") or ""
+
+
+def _candidate_card(result: dict) -> dict:
+    """A compact, display-ready candidate for the interactive resolve picker."""
+    fmt = result.get("format")
+    if isinstance(fmt, list):
+        fmt = ", ".join(str(x) for x in fmt)
+    return {
+        "id": result.get("id"),
+        "title": _title_of(result),
+        "thumb": result.get("thumb") or result.get("cover_image") or "",
+        "year": str(result.get("year") or ""),
+        "country": result.get("country") or "",
+        "format": fmt or "",
+        "url": _candidate_url(result),
+    }
 
 
 def _release_formats(release: dict) -> str:
@@ -423,8 +442,10 @@ class Resolver:
 
     def _guess(self, pool: list[dict], ext: AlbumExtraction) -> Resolution:
         """Text-only best guess (LOW, flagged not added): the master's most-held
-        US version if available, else the most-held plausible candidate."""
+        US version if available, else the most-held plausible candidate. Carries
+        the candidate pool so the UI can offer an interactive pick."""
         plausible = self._plausible(pool, ext)
+        cards = [_candidate_card(r) for r in plausible[:8]]
         master_id = next((r.get("master_id") for r in plausible if r.get("master_id")), None)
         version = None
         if master_id:
@@ -435,20 +456,22 @@ class Resolver:
 
         if version is not None:
             rid = safe_int(version["id"])
-            return Resolution(
+            res = Resolution(
                 Confidence.LOW, "master versions fallback", rid,
                 _title_of(version) or _title_of(plausible[0]), _release_url(rid),
                 alternates=_alternates(plausible, plausible[0]), is_guess=True,
                 note="Most-held version (US-biased); unverified by runout or cover.",
             )
-
-        chosen = self._highest_have(plausible)
-        return Resolution(
-            Confidence.LOW, "ambiguous (best guess)", safe_int(chosen["id"]),
-            _title_of(chosen), _candidate_url(chosen),
-            alternates=_alternates(plausible, chosen), is_guess=True,
-            note="Multiple candidates; none confirmed by runout or cover.",
-        )
+        else:
+            chosen = self._highest_have(plausible)
+            res = Resolution(
+                Confidence.LOW, "ambiguous (best guess)", safe_int(chosen["id"]),
+                _title_of(chosen), _candidate_url(chosen),
+                alternates=_alternates(plausible, chosen), is_guess=True,
+                note="Multiple candidates; none confirmed by runout or cover.",
+            )
+        res.candidates = cards
+        return res
 
     def _plausible(self, results: list[dict], ext: AlbumExtraction) -> list[dict]:
         """Drop obviously-unrelated hits before guessing; keep all if that would
@@ -636,6 +659,7 @@ class _Cataloguer:
             committed=committed, value=format_price(res.lowest_price),
             results_row=results_row,
             review_row=None if will_add else _review_row(ext, res, group),
+            extra={"key": key, "candidates": res.candidates} if res.candidates else None,
         )
         return True
 
@@ -666,6 +690,7 @@ class _Cataloguer:
         data: dict | None = None,
         results_row: dict | None = None,
         review_row: dict | None = None,
+        extra: dict | None = None,
     ) -> None:
         # Record to the durable ledger BEFORE rendering, so a crash can't leave
         # an album added to Discogs but unrecorded (which would re-add on rerun).
@@ -677,7 +702,7 @@ class _Cataloguer:
         )
         self._ui.album(
             status=status, artist=artist, title=title, release_id=release_id,
-            signal=signal, committed=committed, value=value,
+            signal=signal, committed=committed, value=value, extra=extra,
         )
         if results_row is not None:
             self.results_rows.append(results_row)
