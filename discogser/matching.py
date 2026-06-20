@@ -69,7 +69,7 @@ def is_runout_hit(match: RunoutMatch | None) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Front/back agreement — a cheap sanity check used for the MEDIUM tier.
+# Front/back agreement - a cheap sanity check used for the MEDIUM tier.
 # ---------------------------------------------------------------------------
 
 FRONT_BACK_AGREE_THRESHOLD = 70.0

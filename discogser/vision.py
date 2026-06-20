@@ -6,7 +6,7 @@ A single model call per album does two jobs at once to save tokens:
   2. Extracts the structured fields needed to search and disambiguate Discogs.
 
 The model is forced to answer through a tool call, so the result is always a
-schema-valid object — no prose parsing. Calls are deterministic (temperature=0)
+schema-valid object - no prose parsing. Calls are deterministic (temperature=0)
 and retried with backoff by the SDK.
 """
 
@@ -156,8 +156,8 @@ def prepare_album_images(front: Path, back: Path, runout: Path) -> list[ImagePar
     ]
 
 
-# Cover-match thumbnails are small — we only need to recognize the artwork, not
-# read fine print — so keep them cheap on tokens.
+# Cover-match thumbnails are small - we only need to recognize the artwork, not
+# read fine print - so keep them cheap on tokens.
 COVER_THUMB_MAX_DIM = 512
 
 
@@ -261,7 +261,7 @@ _PROMPT = (
     "supplied in this assumed order: (1) front cover, (2) back cover, (3) a "
     "macro shot of the side A runout / dead-wax matrix.\n\n"
     "First, independently classify what each image ACTUALLY is (front, back, or "
-    "runout) — do not assume the order is correct. Then extract the requested "
+    "runout) - do not assume the order is correct. Then extract the requested "
     "fields. For the runout, transcribe the etched/stamped characters exactly. "
     "If a field is unknown or not visible, return an empty string. Respond only "
     "through the record_album tool." + _UNTRUSTED_TEXT
@@ -272,7 +272,7 @@ _COVER_TOOL = "compare_covers"
 _COVER_SCHEMA = {
     "type": "object",
     "properties": {
-        # `reason` is required but unused by the caller — forcing the model to
+        # `reason` is required but unused by the caller - forcing the model to
         # justify its picks measurably improves multi-image discrimination.
         "reason": {"type": "string"},
         "matches": {
@@ -289,7 +289,7 @@ _COVER_SCHEMA = {
 }
 
 _COVER_PROMPT = (
-    "The REFERENCE image is a phone photo of a vinyl record's front cover — it "
+    "The REFERENCE image is a phone photo of a vinyl record's front cover - it "
     "may be angled, have glare, price stickers, or shelf wear. The numbered "
     "CANDIDATE images are clean cover scans from a database. Decide which "
     "candidates show the SAME album cover as the reference: same artwork, same "
@@ -427,7 +427,7 @@ def _normalize_barcode(barcode: str) -> str:
 def validate_group_roles(roles: tuple[str, ...]) -> bool:
     """Pure sequence-integrity check, anchored on the runout.
 
-    The failure we must catch is *drift* — a missing or extra shot that
+    The failure we must catch is *drift* - a missing or extra shot that
     misaligns every later album. The macro dead-wax (runout) shot is the
     reliable anchor for that: a valid group is two covers followed by a runout.
 

@@ -132,9 +132,9 @@ class Resolution:
 
 
 def format_price(price: float | None) -> str:
-    """Compact money for the value column; '—' when nothing is for sale."""
+    """Compact money for the value column; '-' when nothing is for sale."""
     if price is None:
-        return "—"
+        return "-"
     return f"${price:,.0f}" if price >= 100 else f"${price:,.2f}"
 
 
@@ -346,7 +346,7 @@ class Resolver:
     def _runout_match(self, results: list[dict], ext: AlbumExtraction) -> Resolution | None:
         """HIGH resolution if any candidate's Matrix/Runout identifiers match the
         transcribed dead-wax above threshold."""
-        best = None  # (RunoutMatch, result) — kept together so they can't diverge
+        best = None  # (RunoutMatch, result) - kept together so they can't diverge
         for result in results[:MAX_CANDIDATES]:
             rid = result.get("id")
             if rid is None:
@@ -477,7 +477,7 @@ class Resolver:
 
     def _enrich(self, res: Resolution) -> Resolution:
         """Attach year, format, and marketplace value from the chosen release
-        detail (cached — usually already fetched during resolution)."""
+        detail (cached - usually already fetched during resolution)."""
         if res.release_id is None:
             return res
         try:
@@ -492,7 +492,7 @@ class Resolver:
 
 
 def _not_found(ext: AlbumExtraction) -> Resolution:
-    title = f"{ext.front.artist} – {ext.front.title}".strip(" –")
+    title = f"{ext.front.artist} - {ext.front.title}".strip(" -")
     return Resolution(
         Confidence.LOW, "not found", None, title, None,
         note="No Discogs candidates from barcode, catno, artist/title, or broad search.",
@@ -585,7 +585,7 @@ class _Cataloguer:
             return True
 
         # Sequence-integrity gate: shot 3 must be a runout, shots 1-2 covers.
-        # A miss means a dropped/extra shot drifted the grouping — halt rather
+        # A miss means a dropped/extra shot drifted the grouping - halt rather
         # than catalog wrong records.
         if not validate_group_roles(ext.image_roles):
             self._ui.drift_halt(
@@ -595,7 +595,7 @@ class _Cataloguer:
 
         try:
             # group[0] is the physical front shot (per the capture contract),
-            # even if vision labeled it a back — use it for cover confirmation.
+            # even if vision labeled it a back - use it for cover confirmation.
             res = self._resolver.resolve(ext, front_path=group[0])
         except DiscogsError as exc:
             self._terminal(
@@ -660,7 +660,7 @@ class _Cataloguer:
         release_id: int | None,
         signal: str,
         committed: bool = False,
-        value: str = "—",
+        value: str = "-",
         res: Resolution | None = None,
         data: dict | None = None,
         results_row: dict | None = None,
@@ -762,7 +762,7 @@ def run(
             drifted = False
             for group in groups:
                 if not cataloguer.process(group):
-                    drifted = True  # sequence drift — already reported
+                    drifted = True  # sequence drift - already reported
                     break
             # Always write what we processed, even on a halt.
             _write_results_csv(photos_dir, cataloguer.results_rows)

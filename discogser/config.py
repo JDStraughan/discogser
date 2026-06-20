@@ -48,7 +48,7 @@ class Config:
         user_agent = os.environ.get("USER_AGENT", "").strip()
         if not user_agent:
             raise ConfigError(
-                "USER_AGENT is required — Discogs throttles requests without a "
+                "USER_AGENT is required - Discogs throttles requests without a "
                 "unique, descriptive User-Agent. See .env.example."
             )
 

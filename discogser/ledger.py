@@ -3,7 +3,7 @@
 Keyed by content (not filename) so renaming or re-importing the same three
 photos still maps to the same album and is never processed twice. The hash is
 order-independent across the three files: we hash each file, sort the digests,
-and hash the concatenation — so the album identity is stable even if the file
+and hash the concatenation - so the album identity is stable even if the file
 ordering shifts.
 """
 

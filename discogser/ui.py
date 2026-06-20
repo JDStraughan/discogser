@@ -4,13 +4,13 @@ color-coded per-album rows that stay scannable whether you drop in 1 LP or 1000.
 Design goals:
   * One result row per album, column-aligned, never wrapping (wrapping destroys
     scannability). Long titles/signals are truncated with an ellipsis.
-  * Color is an *accent*, not a wash — the status glyph, confidence badge, and
+  * Color is an *accent*, not a wash - the status glyph, confidence badge, and
     release id carry the color; the album text stays readable so your eyes don't
     bleed over a long run.
   * A pinned bottom bar shows position, %, elapsed, ETA, and a running tally
     (added / cover / guess / not-found / skipped / errors) so you always know
     where you are without scrolling.
-  * The things you MUST notice — sequence drift, leftovers, the final summary —
+  * The things you MUST notice - sequence drift, leftovers, the final summary -
     are full-width panels, not easy-to-miss lines.
 """
 
@@ -136,7 +136,7 @@ class RunUI:
         # Faint column legend so the rows make sense at a glance.
         legend = Text("  #     ", style="dim")
         legend.append(
-            f"{'·':<1}  {'conf':<{_BADGE_WIDTH}}  artist — title   release    value     signal",
+            f"{'·':<1}  {'conf':<{_BADGE_WIDTH}}  artist - title   release    value     signal",
             style="dim",
         )
         self._print(legend)
@@ -152,10 +152,10 @@ class RunUI:
         release_id: int | None,
         signal: str,
         committed: bool,
-        value: str = "—",
+        value: str = "-",
     ) -> None:
         """Render one finished album and advance the bar. `status` is one of the
-        keys in _STATUS. `value` is a pre-formatted price string (or '—')."""
+        keys in _STATUS. `value` is a pre-formatted price string (or '-')."""
         self._done += 1
         self._update_tally(status)
         glyph, label, color = _STATUS[status]
@@ -173,18 +173,18 @@ class RunUI:
         avail = max(self.console.width - fixed - 1, 24)
         album_w = max(int(avail * 0.62), 16)
         sig_w = max(avail - album_w, 6)
-        rid_str = f"r{release_id}" if release_id else "—"
+        rid_str = f"r{release_id}" if release_id else "-"
         sig = signal or ""
 
         artist_disp = artist.strip() or "Unknown"
         title_disp = title.strip()
-        album_text = f"{artist_disp} — {title_disp}" if title_disp else artist_disp
+        album_text = f"{artist_disp} - {title_disp}" if title_disp else artist_disp
         album_fit = _fit(album_text, album_w)
         # bold only the artist portion for readability
-        if " — " in album_fit:
-            a, _, rest = album_fit.partition(" — ")
+        if " - " in album_fit:
+            a, _, rest = album_fit.partition(" - ")
             line.append(a, style="bold")
-            line.append(" — ", style="dim")
+            line.append(" - ", style="dim")
             line.append(rest)
         else:
             line.append(album_fit, style="bold")
@@ -197,9 +197,9 @@ class RunUI:
         rid_style = "cyan" if release_id else "dim"
         line.append(f"{rid_str:<{_RID_WIDTH}}", style=rid_style)
         line.append("  ")
-        # value column — right-aligned so prices line up; money-green when present
-        value_str = value or "—"
-        value_style = "green" if value_str != "—" else "dim"
+        # value column - right-aligned so prices line up; money-green when present
+        value_str = value or "-"
+        value_style = "green" if value_str != "-" else "dim"
         line.append(f"{_fit(value_str, _VALUE_WIDTH):>{_VALUE_WIDTH}}", style=value_style)
         line.append("  ")
         line.append(_fit(sig, sig_w), style="dim")
@@ -212,7 +212,7 @@ class RunUI:
 
     def drift_halt(self, names: tuple[str, str, str], roles: tuple[str, ...]) -> None:
         body = Text()
-        body.append("Sequence drift detected — a shot is missing or extra.\n\n", style="bold red")
+        body.append("Sequence drift detected - a shot is missing or extra.\n\n", style="bold red")
         body.append("group   ", style="dim")
         body.append(f"{names[0]} .. {names[2]}\n")
         body.append("saw     ", style="dim")
@@ -271,7 +271,7 @@ class RunUI:
             )
         if not self.commit:
             self.console.print(
-                "[dim]Dry-run — no writes were made. Re-run with [bold]--commit[/bold] to add.[/dim]"
+                "[dim]Dry-run - no writes were made. Re-run with [bold]--commit[/bold] to add.[/dim]"
             )
 
     # -- internals ----------------------------------------------------------
