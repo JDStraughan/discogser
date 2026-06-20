@@ -130,3 +130,14 @@ def test_host_guard_blocks_foreign_allows_localhost():
     # localhost variants are allowed.
     assert client.get("/", headers={"Host": "127.0.0.1:8765"}).status_code == 200
     assert client.get("/", headers={"Host": "localhost"}).status_code == 200
+
+
+def test_web_ui_accessibility_attributes():
+    page = create_app().test_client().get("/").get_data(as_text=True)
+    assert 'lang="en"' in page                                  # language declared
+    assert 'role="button"' in page and 'tabindex="0"' in page   # drop zone focusable
+    assert 'aria-label="Add photos' in page                     # named for SR
+    assert 'for="folder"' in page and 'for="folder_name"' in page  # labelled inputs
+    assert 'aria-live="polite"' in page and 'role="alert"' in page  # live regions
+    assert "prefers-reduced-motion" in page                     # motion respected
+    assert ":focus-visible" in page and "sr-only" in page

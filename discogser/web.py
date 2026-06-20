@@ -373,6 +373,12 @@ _PAGE = """<!doctype html>
   .cand .cmeta { font-size:11px; color:#9aa4b2; margin:6px 0; min-height:42px; }
   .cand .cmeta b { color:#e6e6e6; }
   .cand button { width:100%; padding:6px; font-size:11px; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+             overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+  :focus-visible { outline:2px solid #4fd6d6; outline-offset:2px; border-radius:4px; }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition:none !important; animation:none !important; }
+  }
 </style></head>
 <body>
 <header><div class="wrap" style="padding:0">
@@ -381,25 +387,28 @@ _PAGE = """<!doctype html>
 </div></header>
 
 <div class="wrap">
-  <div class="drop" id="drop">
+  <div class="drop" id="drop" role="button" tabindex="0"
+       aria-label="Add photos: drop image files here, or press Enter to choose files">
     <div><b>Drop your photos here</b>, or click to choose</div>
     <div class="sub" id="dropcount" style="margin-top:6px">three shots per record: front, back, side-A runout</div>
   </div>
-  <input type="file" id="files" multiple accept="image/*,.heic,.heif,.tif,.tiff,.webp" hidden>
-  <div class="pathline">on this machine already? <a id="usepath">paste a folder path instead</a></div>
+  <input type="file" id="files" multiple accept="image/*,.heic,.heif,.tif,.tiff,.webp" aria-label="Choose photo files" hidden>
+  <div class="pathline">on this machine already? <a id="usepath" role="button" tabindex="0">paste a folder path instead</a></div>
   <div id="pathbox" style="display:none; margin-top:8px">
+    <label for="folder" class="sr-only">Photos folder path on this machine</label>
     <input type="text" id="folder" placeholder="/path/to/photos">
   </div>
 
   <div class="opts">
+    <label for="folder_name" class="sr-only">Discogs collection folder name</label>
     <input type="text" id="folder_name" placeholder="Discogs folder (Uncategorized)">
     <label><input type="checkbox" id="commit"> commit (actually add)</label>
     <label><input type="checkbox" id="no_cover"> skip cover match</label>
     <button id="go" disabled>Run</button>
   </div>
 
-  <div class="meta" id="meta"></div>
-  <div class="banner" id="banner"></div>
+  <div class="meta" id="meta" aria-live="polite"></div>
+  <div class="banner" id="banner" role="alert"></div>
 
   <table id="grid" style="display:none">
     <thead><tr><th>#</th><th>conf</th><th>artist - title</th>
@@ -407,7 +416,7 @@ _PAGE = """<!doctype html>
     <tbody id="rows"></tbody>
   </table>
 
-  <div class="summary" id="summary"></div>
+  <div class="summary" id="summary" aria-live="polite"></div>
 </div>
 
 <script>
@@ -438,7 +447,10 @@ drop.addEventListener("dragover",e=>{e.preventDefault();drop.classList.add("over
 drop.addEventListener("dragleave",()=>drop.classList.remove("over"));
 drop.addEventListener("drop",e=>{e.preventDefault();drop.classList.remove("over");sendFiles(e.dataTransfer.files);});
 input.addEventListener("change",()=>sendFiles(input.files));
-$("#usepath").addEventListener("click",()=>{ $("#pathbox").style.display="block"; $("#folder").focus(); });
+drop.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); input.click(); } });
+const showPath=()=>{ $("#pathbox").style.display="block"; $("#folder").focus(); };
+$("#usepath").addEventListener("click",showPath);
+$("#usepath").addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); showPath(); } });
 $("#folder").addEventListener("input",()=>{ upload=null; ready(); });
 
 async function sendFiles(fileList){
@@ -492,7 +504,7 @@ $("#go").addEventListener("click",async()=>{
         const det=document.createElement("tr"); det.id="det-"+ev.index; det.className="det"; det.style.display="none";
         det.innerHTML=`<td colspan="6"><div class="sub" style="margin-bottom:8px">which pressing is yours? click to add it to your collection.</div>`+
           `<div class="cands">`+cands.map((c,i)=>
-            `<div class="cand"><img src="${esc(c.thumb)}" loading="lazy" onerror="this.style.visibility='hidden'">`+
+            `<div class="cand"><img src="${esc(c.thumb)}" alt="${esc(c.title)} cover" loading="lazy" onerror="this.style.visibility='hidden'">`+
             `<div class="cmeta"><b>${esc(c.title)}</b><br>${esc([c.year,c.country,c.format].filter(Boolean).join(' · '))}</div>`+
             `<button onclick="pick(${ev.index},${i})">Add to Discogs</button></div>`).join("")+
           `</div></td>`;
