@@ -57,7 +57,8 @@ def _cataloguer(resolution, extractor, *, ui, ledger, commit=True, owned=None):
     client = FakeClient()
     cat = _Cataloguer(
         client=client, ledger=ledger, resolver=_R(), extractor=extractor,
-        ui=ui, owned=owned if owned is not None else set(), folder_id=1, commit=commit,
+        ui=ui, owned=owned if owned is not None else set(), folder_id=1,
+        commit=commit, model="test-model",
     )
     return cat, client
 

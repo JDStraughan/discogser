@@ -10,6 +10,7 @@ written to your collection. Pass --commit to actually add releases.
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 from rich.console import Console
@@ -46,11 +47,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable visual cover-art confirmation (saves a vision call per "
         "unconfirmed album, but catalogs fewer records by default).",
     )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Verbose debug logging (otherwise only warnings/errors are logged).",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        default=None,
+        help="Also append logs to this file.",
+    )
     return parser
+
+
+def _setup_logging(verbose: bool, log_file: Path | None) -> None:
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if log_file is not None:
+        handlers.append(logging.FileHandler(log_file, encoding="utf-8"))
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=handlers,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    _setup_logging(args.verbose, args.log_file)
     console = Console()
 
     try:

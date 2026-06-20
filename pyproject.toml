@@ -26,16 +26,16 @@ classifiers = [
 dependencies = [
     "anthropic==0.69.0",
     "httpx==0.28.1",
-    "Pillow==11.1.0",
+    "Pillow==12.2.0",
     "rich==13.9.4",
-    "python-dotenv==1.0.1",
+    "python-dotenv==1.2.2",
     "rapidfuzz==3.10.1",
 ]
 
 [project.optional-dependencies]
 # iPhone HEIC/HEIF support (optional — JPEG/PNG work without it).
-heic = ["pillow-heif==0.21.0"]
-dev = ["pytest==8.3.4", "ruff==0.8.6"]
+heic = ["pillow-heif==1.1.0"]
+dev = ["pytest==9.0.3", "ruff==0.8.6", "mypy==1.14.1", "pip-audit==2.9.0"]
 
 [project.urls]
 Homepage = "https://github.com/JDStraughan/discogser"
@@ -60,3 +60,9 @@ select = ["E", "F", "W", "I", "UP", "B"]
 # Long descriptive strings (vision schemas/prompts) and a few wide table rows
 # read better unwrapped; line length isn't enforced.
 ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+files = ["discogser"]

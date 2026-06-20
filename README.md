@@ -174,10 +174,11 @@ halts the run, and the close-out is a color-coded summary panel.
 
 - **`results.csv`** — every album: chosen `release_id`, title, year, format,
   `value_usd` + `num_for_sale`, confidence, signal used, alternates, Discogs
-  URL, source image filenames, runout text.
+  URL, source image filenames, runout text, and the `model` used.
 - **`review.csv`** — the LOW-confidence stragglers with best-candidate links so
   you can one-click and finish them by hand.
-- A summary at the end: added, flagged, skipped (dupes), errors.
+- A summary at the end: added, flagged, skipped (dupes), errors, and total
+  Claude token usage. Add `--verbose` (or `--log-file FILE`) for debug logging.
 
 ---
 
@@ -194,6 +195,10 @@ halts the run, and the close-out is a color-coded summary panel.
   (`.cache/`) so reruns and multi-candidate checks don't re-query.
 - **Rate-limit aware.** Requests are paced under the 60/min authenticated limit,
   read `X-Discogs-Ratelimit-Remaining`, and back off exponentially on 429/5xx.
+  Vision calls run at `temperature=0` (deterministic) with SDK retries.
+- **Hardened by default.** Cover-image downloads are SSRF-allowlisted to Discogs
+  hosts and size/type-checked; image decoding is bomb-capped; secrets are
+  redacted from errors. See [SECURITY.md](SECURITY.md).
 
 ---
 

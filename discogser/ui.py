@@ -25,6 +25,7 @@ from rich.progress import (
     BarColumn,
     Progress,
     SpinnerColumn,
+    TaskID,
     TaskProgressColumn,
     TextColumn,
     TimeElapsedColumn,
@@ -93,7 +94,7 @@ class RunUI:
             console=console,
             transient=False,
         )
-        self._task = None
+        self._task: TaskID | None = None
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -240,7 +241,7 @@ class RunUI:
 
     # -- closing summary ----------------------------------------------------
 
-    def summary(self) -> None:
+    def summary(self, tokens: tuple[int, int] | None = None) -> None:
         t = self.tally
         verb = "added" if self.commit else "would add"
         table = Table(box=ROUNDED, show_header=False, border_style="grey50", pad_edge=False)
@@ -264,6 +265,10 @@ class RunUI:
 
         self.console.print()
         self.console.print(Panel(table, title="summary", title_align="left", box=ROUNDED, border_style="cyan"))
+        if tokens and (tokens[0] or tokens[1]):
+            self.console.print(
+                f"[dim]Claude tokens: {tokens[0]:,} in / {tokens[1]:,} out[/dim]"
+            )
         if not self.commit:
             self.console.print(
                 "[dim]Dry-run — no writes were made. Re-run with [bold]--commit[/bold] to add.[/dim]"

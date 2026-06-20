@@ -15,11 +15,13 @@ pip install -e ".[dev,heic]"
 ## Before you open a PR
 
 ```bash
-ruff check .     # lint (and `ruff check --fix .` to auto-fix)
-pytest           # full offline test suite — no network, no API keys needed
+ruff check .            # lint (and `ruff check --fix .` to auto-fix)
+mypy                    # static type check
+pytest                  # full offline test suite — no network, no API keys
+pip-audit --skip-editable   # dependency vulnerability scan
 ```
 
-CI runs exactly these on Python 3.11–3.13. Both must pass.
+CI runs exactly these on Python 3.11–3.13 (plus CodeQL). All must pass.
 
 The test suite mocks Discogs and the vision model entirely (`tests/helpers.py`),
 so you can develop the whole matching ladder without an API key or a single

@@ -10,6 +10,8 @@ console rendering is delegated to `ui.RunUI`.
 from __future__ import annotations
 
 import csv
+import logging
+import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -19,7 +21,7 @@ from PIL import Image
 from rich.console import Console
 
 from .config import Config
-from .discogs import DiscogsClient, DiscogsError, have_count
+from .discogs import DiscogsClient, DiscogsError, have_count, safe_int
 from .ledger import Ledger, album_key
 from .matching import agrees, best_runout_match, front_back_agreement, is_runout_hit
 from .ui import RunUI
@@ -30,6 +32,8 @@ from .vision import (
     prepare_cover_bytes,
     validate_group_roles,
 )
+
+logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".tif", ".tiff", ".webp"}
 
@@ -82,7 +86,12 @@ def discover_images(folder: Path) -> list[Path]:
 
 
 def sort_images(paths: list[Path]) -> list[Path]:
-    """Sort by filename, then EXIF capture time as a tie-breaker."""
+    """Sort by filename, then EXIF capture time as a tie-breaker. The EXIF read
+    (a full image decode) only happens when filenames actually collide, so the
+    common case stays cheap even for thousands of photos."""
+    names = [p.name.lower() for p in paths]
+    if len(set(names)) == len(names):
+        return sorted(paths, key=lambda p: p.name.lower())
     return sorted(paths, key=lambda p: (p.name.lower(), _exif_capture_time(p)))
 
 
@@ -135,7 +144,7 @@ def _release_url(release_id: int) -> str:
 
 def _candidate_url(result: dict) -> str:
     rid = result.get("id")
-    return _release_url(int(rid)) if rid else ""
+    return _release_url(safe_int(rid)) if rid else ""
 
 
 def _title_of(result: dict) -> str:
@@ -237,12 +246,12 @@ class Resolver:
         if len(results) == 1:
             r = results[0]
             return Resolution(
-                Confidence.HIGH, "barcode exact", int(r["id"]),
+                Confidence.HIGH, "barcode exact", safe_int(r["id"]),
                 _title_of(r), _candidate_url(r),
             )
         chosen = self._highest_have(results)
         return Resolution(
-            Confidence.MEDIUM, "barcode (multiple)", int(chosen["id"]),
+            Confidence.MEDIUM, "barcode (multiple)", safe_int(chosen["id"]),
             _title_of(chosen), _candidate_url(chosen),
             alternates=_alternates(results, chosen),
             note="Barcode matched several releases; chose the most-held.",
@@ -259,7 +268,7 @@ class Resolver:
         ):
             r = results[0]
             return Resolution(
-                Confidence.MEDIUM, "catno + artist (single)", int(r["id"]),
+                Confidence.MEDIUM, "catno + artist (single)", safe_int(r["id"]),
                 _title_of(r), _candidate_url(r),
                 note="Single catno candidate; front/back agree.",
             )
@@ -280,7 +289,7 @@ class Resolver:
         if confirmed:
             chosen = self._highest_have(confirmed)
             return Resolution(
-                Confidence.MEDIUM, "cover match", int(chosen["id"]),
+                Confidence.MEDIUM, "cover match", safe_int(chosen["id"]),
                 _title_of(chosen), _candidate_url(chosen),
                 alternates=_alternates(pool, chosen), cover_confirmed=True,
                 note="Front cover visually confirmed; exact pressing may differ.",
@@ -308,12 +317,16 @@ class Resolver:
 
         pool = list(seeds)
         seen = {r.get("id") for r in pool}
+        attempted = errored = 0
         for params in queries:
             if not any(params.values()):
                 continue
+            attempted += 1
             try:
                 results = self._client.search(**params)
-            except DiscogsError:
+            except DiscogsError as exc:
+                errored += 1
+                logger.debug("pool search failed (%s): %s", params, exc)
                 continue
             for r in results:
                 rid = r.get("id")
@@ -322,6 +335,10 @@ class Resolver:
                     pool.append(r)
             if len(pool) >= self.MAX_POOL:
                 break
+        # If every broad query erred (a Discogs outage) and we found nothing,
+        # surface it as an error rather than a misleading "not found".
+        if not pool and attempted and errored == attempted:
+            raise DiscogsError("all candidate searches failed (Discogs unavailable?)")
         return pool[: self.MAX_POOL]
 
     # -- runout matching ----------------------------------------------------
@@ -335,7 +352,7 @@ class Resolver:
             if rid is None:
                 continue
             try:
-                release = self._client.get_release(int(rid))
+                release = self._client.get_release(safe_int(rid))
             except DiscogsError:
                 continue
             match = best_runout_match(ext.runout.matrix, release.get("identifiers", []))
@@ -346,7 +363,7 @@ class Resolver:
         match, result = best
         return Resolution(
             Confidence.HIGH, f"runout match ({match.score:.0f})",
-            int(result["id"]), _title_of(result),
+            safe_int(result["id"]), _title_of(result),
             _candidate_url(result), alternates=_alternates(results, result),
         )
 
@@ -411,12 +428,12 @@ class Resolver:
         version = None
         if master_id:
             try:
-                version = _pick_version(self._client.get_master_versions(int(master_id)))
+                version = _pick_version(self._client.get_master_versions(safe_int(master_id)))
             except DiscogsError:
                 version = None
 
         if version is not None:
-            rid = int(version["id"])
+            rid = safe_int(version["id"])
             return Resolution(
                 Confidence.LOW, "master versions fallback", rid,
                 _title_of(version) or _title_of(plausible[0]), _release_url(rid),
@@ -426,7 +443,7 @@ class Resolver:
 
         chosen = self._highest_have(plausible)
         return Resolution(
-            Confidence.LOW, "ambiguous (best guess)", int(chosen["id"]),
+            Confidence.LOW, "ambiguous (best guess)", safe_int(chosen["id"]),
             _title_of(chosen), _candidate_url(chosen),
             alternates=_alternates(plausible, chosen), is_guess=True,
             note="Multiple candidates; none confirmed by runout or cover.",
@@ -451,7 +468,7 @@ class Resolver:
             if rid is None:
                 continue
             try:
-                have = have_count(self._client.get_release(int(rid)))
+                have = have_count(self._client.get_release(safe_int(rid)))
             except DiscogsError:
                 continue
             if have > best_have:
@@ -529,6 +546,7 @@ class _Cataloguer:
         owned: set[int],
         folder_id: int,
         commit: bool,
+        model: str,
     ) -> None:
         self._client = client
         self._ledger = ledger
@@ -538,6 +556,7 @@ class _Cataloguer:
         self._owned = owned
         self._folder_id = folder_id
         self._commit = commit
+        self._model = model
         self.results_rows: list[dict] = []
         self.review_rows: list[dict] = []
 
@@ -547,8 +566,10 @@ class _Cataloguer:
         if self._ledger.is_committed(key):
             prior = self._ledger.get(key)
             self._ui.album(
-                status="skipped", artist="", title=prior.title or "(already added)",
-                release_id=prior.release_id, signal="already added", committed=True,
+                status="skipped", artist="",
+                title=(prior.title if prior else None) or "(already added)",
+                release_id=prior.release_id if prior else None,
+                signal="already added", committed=True,
             )
             return True
 
@@ -604,13 +625,15 @@ class _Cataloguer:
             )
             return True
 
+        results_row = _results_row(ext, res, group)
+        results_row["model"] = self._model
         self._terminal(
             key, group, ext, res=res, status=_status_for(res),
             artist=ext.front.artist or "Unknown", title=res.title or ext.front.title,
             release_id=res.release_id,
             signal=res.signal + (" · guess" if res.is_guess else ""),
             committed=committed, value=format_price(res.lowest_price),
-            results_row=_results_row(ext, res, group),
+            results_row=results_row,
             review_row=None if will_add else _review_row(ext, res, group),
         )
         return True
@@ -643,15 +666,17 @@ class _Cataloguer:
         results_row: dict | None = None,
         review_row: dict | None = None,
     ) -> None:
-        self._ui.album(
-            status=status, artist=artist, title=title, release_id=release_id,
-            signal=signal, committed=committed, value=value,
-        )
+        # Record to the durable ledger BEFORE rendering, so a crash can't leave
+        # an album added to Discogs but unrecorded (which would re-add on rerun).
         self._ledger.record(
             key, status=status, release_id=release_id, title=title,
             confidence=res.confidence.value if res else None,
             signal=signal, committed=committed,
             data=data if data is not None else _result_data(ext, group, res),
+        )
+        self._ui.album(
+            status=status, artist=artist, title=title, release_id=release_id,
+            signal=signal, committed=committed, value=value,
         )
         if results_row is not None:
             self.results_rows.append(results_row)
@@ -711,7 +736,8 @@ def run(
         target_folder = folder_name or config.discogs_folder
         try:
             folder_id = client.resolve_folder_id(target_folder)
-            owned = client.get_collection_release_ids()
+            with console.status("[dim]Pulling your Discogs collection for dedupe…[/dim]"):
+                owned = client.get_collection_release_ids()
         except DiscogsError as exc:
             console.print(f"[red]Discogs setup failed:[/red] {exc}")
             return 2
@@ -728,6 +754,7 @@ def run(
             owned=owned,
             folder_id=folder_id,
             commit=commit,
+            model=config.anthropic_model,
         )
 
         with ui:
@@ -742,7 +769,7 @@ def run(
             _write_review_csv(photos_dir, cataloguer.review_rows)
             if drifted:
                 return 1
-            ui.summary()
+            ui.summary(tokens=(extractor.input_tokens, extractor.output_tokens))
 
     return 0
 
@@ -836,7 +863,7 @@ _RESULTS_FIELDS = [
     "artist", "title", "year", "format", "value_usd", "num_for_sale",
     "release_id", "confidence", "signal", "discogs_url", "alternates",
     "is_guess", "cover_confirmed", "runout_matrix", "runout_confidence",
-    "images", "note",
+    "images", "model", "note",
 ]
 _REVIEW_FIELDS = [
     "artist", "title", "value_usd", "best_candidate_url", "release_id", "signal",
@@ -858,15 +885,24 @@ _CSV_FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
 
 
 def _csv_cell(value: object) -> str:
-    """Neutralise spreadsheet formula injection: a cell beginning with a
-    formula trigger is prefixed with a quote so it's treated as text."""
+    """Neutralise spreadsheet formula injection: a cell whose first non-space
+    character is a formula trigger is prefixed with a quote so it's treated as
+    text. Tested against leading-whitespace bypasses (e.g. ' =cmd')."""
     s = "" if value is None else str(value)
-    return "'" + s if s[:1] in _CSV_FORMULA_LEADS else s
+    return "'" + s if s.lstrip()[:1] in _CSV_FORMULA_LEADS else s
 
 
 def _write_csv(path: Path, fields: list[str], rows: list[dict]) -> None:
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({k: _csv_cell(row.get(k)) for k in fields})
+    """Write atomically (temp file + replace) so a locked/open target or a
+    mid-write failure can't corrupt or truncate a prior good report."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with open(tmp, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fields)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({k: _csv_cell(row.get(k)) for k in fields})
+        os.replace(tmp, path)
+    except OSError as exc:
+        logger.error("could not write %s: %s", path.name, exc)
+        tmp.unlink(missing_ok=True)

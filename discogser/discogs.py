@@ -13,12 +13,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import re
 import threading
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.discogs.com"
 
@@ -30,9 +35,50 @@ _BACKOFF_BASE = 2.0
 _BACKOFF_MAX = 60.0
 _MAX_RETRIES = 5
 
+# Cover-image download guards (SSRF + resource-exhaustion defense).
+_MAX_IMAGE_BYTES = 16 * 1024 * 1024
+_MAX_IMAGE_REDIRECTS = 2
+# Magic-byte prefixes for the image formats Pillow will be asked to decode.
+_IMAGE_MAGIC = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a", b"BM", b"II*\x00", b"MM\x00*")
+
+_TOKEN_RE = re.compile(r"Discogs token=\S+")
+
 
 class DiscogsError(RuntimeError):
     pass
+
+
+def safe_int(value: Any, default: int = 0) -> int:
+    """Coerce an untrusted API field to int without crashing the run."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _redact(text: str) -> str:
+    """Strip the auth token out of any string before it is logged or raised."""
+    return _TOKEN_RE.sub("Discogs token=***", text)
+
+
+def _is_discogs_host(host: str) -> bool:
+    host = (host or "").lower()
+    return host == "discogs.com" or host.endswith(".discogs.com")
+
+
+def _validate_image_url(url: str) -> bool:
+    """Only https URLs on a Discogs host may be fetched (SSRF allowlist)."""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and _is_discogs_host(parsed.hostname or "")
+
+
+def _looks_like_image(data: bytes) -> bool:
+    if data[8:12] == b"WEBP":  # RIFF....WEBP
+        return True
+    return any(data.startswith(magic) for magic in _IMAGE_MAGIC)
 
 
 class DiscogsClient:
@@ -59,10 +105,11 @@ class DiscogsClient:
             },
         )
         # Separate client for the image CDN: only a User-Agent (no API token
-        # leaked to the CDN host), follows redirects.
+        # leaked to the CDN host). Redirects are handled manually so every hop
+        # can be re-validated against the host allowlist (SSRF defense).
         self._img = httpx.Client(
             timeout=timeout,
-            follow_redirects=True,
+            follow_redirects=False,
             headers={"User-Agent": user_agent},
         )
 
@@ -92,17 +139,13 @@ class DiscogsClient:
                 resp = self._client.request(method, path, **kwargs)
             except httpx.TransportError as exc:
                 if attempt == _MAX_RETRIES - 1:
-                    raise DiscogsError(f"Network error calling {path}: {exc}") from exc
+                    raise DiscogsError(_redact(f"Network error calling {path}: {exc}")) from None
                 time.sleep(min(_BACKOFF_BASE ** attempt, _BACKOFF_MAX))
                 continue
 
             remaining = resp.headers.get("X-Discogs-Ratelimit-Remaining")
-            if remaining is not None:
-                try:
-                    if int(remaining) <= _LOW_REMAINING:
-                        time.sleep(_MIN_INTERVAL * 2)
-                except ValueError:
-                    pass
+            if remaining is not None and safe_int(remaining, _LOW_REMAINING + 1) <= _LOW_REMAINING:
+                time.sleep(_MIN_INTERVAL * 2)
 
             if resp.status_code == 429 or resp.status_code >= 500:
                 if attempt == _MAX_RETRIES - 1:
@@ -151,9 +194,13 @@ class DiscogsClient:
             pass
 
     def fetch_image(self, url: str) -> bytes | None:
-        """Download a cover image (cached on disk by URL). Returns None on any
-        failure — cover matching is best-effort and must never crash a run."""
+        """Download a cover image (cached on disk by URL). Best-effort: returns
+        None on any failure and never crashes a run. Hardened against SSRF and
+        oversized/non-image responses (see `_download_image`)."""
         if not url:
+            return None
+        if not _validate_image_url(url):
+            logger.debug("blocked non-allowlisted image url: %s", url)
             return None
         path = self._cache_path("img", url, ext=".bin")
         if path.exists():
@@ -161,13 +208,40 @@ class DiscogsClient:
                 return path.read_bytes()
             except OSError:
                 return None
+        data = self._download_image(url, _MAX_IMAGE_REDIRECTS)
+        if data is None:
+            return None
         try:
-            resp = self._img.get(url)
-            if resp.status_code != 200 or not resp.content:
-                return None
-            path.write_bytes(resp.content)
-            return resp.content
-        except (httpx.HTTPError, OSError):
+            path.write_bytes(data)
+        except OSError:
+            pass
+        return data
+
+    def _download_image(self, url: str, redirects_left: int) -> bytes | None:
+        try:
+            with self._img.stream("GET", url) as resp:
+                if resp.status_code in (301, 302, 303, 307, 308):
+                    target = urljoin(url, resp.headers.get("location", ""))
+                    if redirects_left <= 0 or not _validate_image_url(target):
+                        return None
+                    return self._download_image(target, redirects_left - 1)
+                if resp.status_code != 200:
+                    return None
+                ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                if not ctype.startswith("image/"):
+                    return None
+                declared = resp.headers.get("content-length")
+                if declared and declared.isdigit() and int(declared) > _MAX_IMAGE_BYTES:
+                    return None
+                buf = bytearray()
+                for chunk in resp.iter_bytes():
+                    buf.extend(chunk)
+                    if len(buf) > _MAX_IMAGE_BYTES:
+                        return None
+                data = bytes(buf)
+                return data if _looks_like_image(data) else None
+        except (httpx.HTTPError, OSError) as exc:
+            logger.debug("image fetch failed: %s", _redact(str(exc)))
             return None
 
     # -- public endpoints ---------------------------------------------------
@@ -219,11 +293,11 @@ class DiscogsClient:
         folders = data.get("folders", [])
         for folder in folders:
             if (folder.get("name") or "").strip().lower() == folder_name.strip().lower():
-                return int(folder["id"])
+                return safe_int(folder.get("id"))
         # Fall back to Uncategorized (id 1) if the requested name is unknown.
         for folder in folders:
             if (folder.get("name") or "") == "Uncategorized":
-                return int(folder["id"])
+                return safe_int(folder.get("id"))
         raise DiscogsError(
             f"Folder {folder_name!r} not found and no Uncategorized folder exists"
         )
@@ -242,9 +316,9 @@ class DiscogsClient:
             for item in data.get("releases", []):
                 rid = item.get("id") or item.get("basic_information", {}).get("id")
                 if rid is not None:
-                    ids.add(int(rid))
+                    ids.add(safe_int(rid))
             pagination = data.get("pagination", {})
-            if page >= int(pagination.get("pages", 1)):
+            if page >= safe_int(pagination.get("pages"), 1):
                 break
             page += 1
         return ids
@@ -266,12 +340,12 @@ def have_count(payload: dict) -> int:
     version entry, which use different shapes."""
     community = payload.get("community")
     if isinstance(community, dict) and "have" in community:
-        return int(community.get("have") or 0)
+        return safe_int(community.get("have"))
     stats = payload.get("stats", {})
     if isinstance(stats, dict):
         comm = stats.get("community", {})
         if isinstance(comm, dict):
             for key in ("in_collection", "have"):
                 if key in comm:
-                    return int(comm.get(key) or 0)
+                    return safe_int(comm.get(key))
     return 0
