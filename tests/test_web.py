@@ -47,7 +47,7 @@ def test_index_page_serves():
 
 def test_run_rejects_missing_folder(tmp_path):
     client = create_app().test_client()
-    resp = client.post("/run", json={"folder": str(tmp_path / "does-not-exist")})
+    resp = client.post("/run", json={"folder": str(tmp_path / "does-not-exist")}, headers={"X-Requested-With": "t"})
     assert resp.status_code == 400
     assert "error" in resp.get_json()
 
@@ -63,6 +63,7 @@ def test_upload_accepts_images_and_run_starts():
         "/upload",
         data={"photos": [(_jpeg(), "IMG_1.jpg"), (_jpeg(), "IMG_2.jpg")]},
         content_type="multipart/form-data",
+        headers={"X-Requested-With": "t"},
     )
     assert resp.status_code == 200
     body = resp.get_json()
@@ -75,13 +76,14 @@ def test_upload_rejects_non_images():
         "/upload",
         data={"photos": [(io.BytesIO(b"hello"), "notes.txt")]},
         content_type="multipart/form-data",
+        headers={"X-Requested-With": "t"},
     )
     assert resp.status_code == 400
 
 
 def test_run_rejects_expired_upload():
     client = create_app().test_client()
-    resp = client.post("/run", json={"upload_id": "deadbeef"})
+    resp = client.post("/run", json={"upload_id": "deadbeef"}, headers={"X-Requested-With": "t"})
     assert resp.status_code == 400
 
 
@@ -107,8 +109,8 @@ def test_album_event_carries_resolve_candidates():
 def test_resolve_rejects_bad_release_id():
     # These fail before any config/network, so they never touch a real account.
     client = create_app().test_client()
-    assert client.post("/resolve", json={}).status_code == 400
-    assert client.post("/resolve", json={"release_id": "not-an-int"}).status_code == 400
+    assert client.post("/resolve", json={}, headers={"X-Requested-With": "t"}).status_code == 400
+    assert client.post("/resolve", json={"release_id": "not-an-int"}, headers={"X-Requested-With": "t"}).status_code == 400
 
 
 def test_security_headers_present():
@@ -121,6 +123,13 @@ def test_security_headers_present():
     assert "frame-ancestors 'none'" in csp
     assert "img-src 'self' https://*.discogs.com" in csp
     assert "connect-src 'self'" in csp
+
+
+def test_post_without_csrf_header_is_blocked():
+    client = create_app().test_client()
+    # No X-Requested-With -> rejected before any work (CSRF defense).
+    assert client.post("/run", json={"upload_id": "x"}).status_code == 403
+    assert client.post("/resolve", json={"release_id": 1}).status_code == 403
 
 
 def test_host_guard_blocks_foreign_allows_localhost():

@@ -153,9 +153,14 @@ def create_app() -> Any:
     uploads: dict[str, Path] = {}
 
     @app.before_request
-    def _guard_host():
+    def _guard():
         if not _is_localhost(request.host):
             return "forbidden host", 403
+        # CSRF: requiring a custom header forces a CORS preflight, so a page the
+        # user is merely visiting cannot drive these endpoints with a "simple"
+        # cross-site request (the preflight has no allow-origin and is blocked).
+        if request.method == "POST" and not request.headers.get("X-Requested-With"):
+            return "missing X-Requested-With header", 403
 
     @app.after_request
     def _security_headers(resp):
@@ -430,7 +435,7 @@ async function pick(i, ci){
   const d=rowData[i], c=d.cands[ci];
   const btns=document.querySelectorAll("#det-"+i+" button"); btns.forEach(b=>b.disabled=true);
   try{
-    const r=await (await fetch("/resolve",{method:"POST",headers:{"Content-Type":"application/json"},
+    const r=await (await fetch("/resolve",{method:"POST",headers:{"Content-Type":"application/json","X-Requested-With":"discogser"},
       body:JSON.stringify({release_id:c.id, key:d.key, folder_name:currentFolder, title:c.title})})).json();
     if(r.error){ banner(r.error); btns.forEach(b=>b.disabled=false); return; }
     const b=document.getElementById("badge-"+i); b.textContent="ADDED"; b.className="badge high";
@@ -460,7 +465,7 @@ async function sendFiles(fileList){
   $("#dropcount").textContent="uploading "+files.length+" photos…";
   const fd=new FormData(); files.forEach(f=>fd.append("photos",f));
   try{
-    const r=await (await fetch("/upload",{method:"POST",body:fd})).json();
+    const r=await (await fetch("/upload",{method:"POST",headers:{"X-Requested-With":"discogser"},body:fd})).json();
     if(r.error){ banner(r.error); $("#dropcount").textContent=""; return; }
     upload=r.upload_id;
     $("#dropcount").textContent=r.count+" photos ready  ("+Math.round(r.count/3)+" albums)";
@@ -476,7 +481,7 @@ $("#go").addEventListener("click",async()=>{
                folder_name:$("#folder_name").value };
   if(upload) body.upload_id=upload; else body.folder=$("#folder").value;
   let res;
-  try{ res=await (await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json(); }
+  try{ res=await (await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json","X-Requested-With":"discogser"},body:JSON.stringify(body)})).json(); }
   catch(err){ $("#meta").textContent=""; banner("Request failed: "+err); ready(); return; }
   if(res.error){ $("#meta").textContent=""; banner(res.error); ready(); return; }
   runId=res.run_id;
