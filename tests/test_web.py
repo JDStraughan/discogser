@@ -150,6 +150,20 @@ def test_web_ui_accessibility_attributes():
     assert 'aria-live="polite"' in page and 'role="alert"' in page  # live regions
     assert "prefers-reduced-motion" in page                     # motion respected
     assert ":focus-visible" in page and "sr-only" in page
+    assert "#6b7383" not in page  # the 3.96:1 (AA-failing) grey is gone
+
+
+def test_is_localhost_parser():
+    from discogser.web import _is_localhost
+    assert _is_localhost("localhost")
+    assert _is_localhost("127.0.0.1:8765")
+    assert _is_localhost("[::1]:8765")
+    assert _is_localhost("::1")                              # bare IPv6 accepted
+    assert not _is_localhost("evil.com")
+    assert not _is_localhost("evil.com:80")
+    assert not _is_localhost("127.0.0.1:8765@evil.com")      # userinfo rejected
+    assert not _is_localhost("127.0.0.1.evil.com")
+    assert not _is_localhost("")
 
 
 def test_escape_helper_neutralises_attribute_breakout():

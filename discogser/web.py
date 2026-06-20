@@ -62,10 +62,13 @@ _CSP = (
 
 def _is_localhost(host: str) -> bool:
     host = (host or "").strip().lower()
-    if host.startswith("["):              # IPv6 literal: [::1] or [::1]:8765
-        host = host[1:].split("]")[0]
-    else:
-        host = host.split(":")[0]         # 127.0.0.1:8765 -> 127.0.0.1
+    if "@" in host:                       # no legitimate Host carries userinfo
+        return False
+    if host.startswith("["):              # bracketed IPv6: [::1] or [::1]:8765
+        host = host[1:].split("]", 1)[0]
+    elif host.count(":") == 1:            # host:port (IPv4 or name)
+        host = host.split(":")[0]
+    # else leave a bare IPv6 ("::1") or plain hostname intact
     return host in _ALLOWED_HOSTS
 
 
@@ -337,7 +340,7 @@ _PAGE = """<!doctype html>
          font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   header { padding:18px 24px; border-bottom:1px solid #232733; }
   h1 { margin:0; font-size:20px; letter-spacing:.5px; } h1 span { color:#4fd6d6; }
-  .sub { color:#6b7383; font-size:12px; margin-top:2px; }
+  .sub { color:#868fa3; font-size:12px; margin-top:2px; }
   .wrap { max-width:1100px; margin:0 auto; padding:24px; }
   .drop { border:2px dashed #2c3340; border-radius:12px; padding:34px; text-align:center;
           color:#9aa4b2; cursor:pointer; transition:.15s; background:#131722; }
@@ -350,12 +353,12 @@ _PAGE = """<!doctype html>
   button { background:#4fd6d6; color:#0f1115; border:0; padding:10px 20px; border-radius:6px;
            font:inherit; font-weight:700; cursor:pointer; }
   button:disabled { opacity:.45; cursor:not-allowed; }
-  .pathline { margin-top:10px; color:#6b7383; font-size:12px; }
+  .pathline { margin-top:10px; color:#868fa3; font-size:12px; }
   .pathline a { color:#4fd6d6; cursor:pointer; }
   .meta { color:#9aa4b2; margin:18px 2px 8px; min-height:20px; }
   table { width:100%; border-collapse:collapse; margin-top:8px; }
   th,td { text-align:left; padding:6px 10px; border-bottom:1px solid #1c2029; white-space:nowrap; }
-  th { color:#6b7383; font-weight:500; font-size:12px; }
+  th { color:#868fa3; font-weight:500; font-size:12px; }
   td.album { white-space:normal; } td.num,td.val { text-align:right; color:#9aa4b2; }
   a { color:#4fd6d6; text-decoration:none; } a:hover { text-decoration:underline; }
   .badge { font-weight:700; }
@@ -439,7 +442,7 @@ async function pick(i, ci){
       body:JSON.stringify({release_id:c.id, key:d.key, folder_name:currentFolder, title:c.title})})).json();
     if(r.error){ banner(r.error); btns.forEach(b=>b.disabled=false); return; }
     const b=document.getElementById("badge-"+i); b.textContent="ADDED"; b.className="badge high";
-    document.getElementById("rel-"+i).innerHTML=`<a href="${r.url}" target="_blank">r${r.release_id}</a>`;
+    document.getElementById("rel-"+i).innerHTML=`<a href="${r.url}" target="_blank" rel="noopener noreferrer">r${r.release_id}</a>`;
     document.getElementById("det-"+i).style.display="none";
   }catch(err){ banner("Add failed: "+err); btns.forEach(b=>b.disabled=false); }
 }
@@ -493,7 +496,7 @@ $("#go").addEventListener("click",async()=>{
       $("#meta").textContent=`${ev.commit?"COMMIT":"DRY-RUN"} · ${ev.total} albums · folder ${esc(ev.folder)} · you own ${ev.owned}`;
       $("#grid").style.display="table";
     } else if(ev.type==="album"){
-      const rel=ev.url?`<a href="${ev.url}" target="_blank">r${ev.release_id}</a>`:"-";
+      const rel=ev.url?`<a href="${ev.url}" target="_blank" rel="noopener noreferrer">r${ev.release_id}</a>`:"-";
       const val=(ev.value&&ev.value!=="-")?`<span class="price">${ev.value}</span>`:"-";
       const cands=ev.candidates||[];
       const sigCell=`<td style="color:#8b93a1">${esc(ev.signal)}`+
