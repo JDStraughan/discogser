@@ -33,9 +33,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# iPhone HEIC/HEIF support (optional — JPEG/PNG work without it).
+# iPhone HEIC/HEIF support (optional; JPEG/PNG work without it).
 heic = ["pillow-heif==1.1.0"]
-dev = ["pytest==9.0.3", "ruff==0.8.6", "mypy==1.14.1", "pip-audit==2.9.0"]
+# Local browser UI (`discogser-web`).
+web = ["flask==3.1.0"]
+dev = ["pytest==9.0.3", "ruff==0.8.6", "mypy==1.14.1", "pip-audit==2.9.0", "flask==3.1.0"]
 
 [project.urls]
 Homepage = "https://github.com/JDStraughan/discogser"
@@ -44,6 +46,7 @@ Issues = "https://github.com/JDStraughan/discogser/issues"
 
 [project.scripts]
 discogser = "discogser.cli:main"
+discogser-web = "discogser.web:main"
 
 [tool.setuptools]
 packages = ["discogser"]

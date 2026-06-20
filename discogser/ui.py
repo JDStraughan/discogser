@@ -17,6 +17,7 @@ Design goals:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Protocol
 
 from rich.box import ROUNDED
 from rich.console import Console
@@ -47,6 +48,23 @@ _STATUS = {
 _BADGE_WIDTH = 6
 _RID_WIDTH = 9   # "r1234567"
 _VALUE_WIDTH = 8  # "$1,234" / "$24.99"
+
+
+class Reporter(Protocol):
+    """What the pipeline needs from a renderer. `RunUI` is the terminal
+    implementation; the web UI provides its own. This lets one engine drive
+    both the CLI and the browser."""
+
+    def __enter__(self) -> Any: ...
+    def __exit__(self, *exc: object) -> None: ...
+    def header(self, folder_name: str, folder_id: int, owned: int) -> None: ...
+    def album(
+        self, *, status: str, artist: str, title: str, release_id: int | None,
+        signal: str, committed: bool, value: str = "-",
+    ) -> None: ...
+    def drift_halt(self, names: tuple[str, str, str], roles: tuple[str, ...]) -> None: ...
+    def leftovers(self, names: list[str]) -> None: ...
+    def summary(self, tokens: tuple[int, int] | None = None) -> None: ...
 
 
 @dataclass

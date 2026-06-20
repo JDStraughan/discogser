@@ -13,6 +13,7 @@ import csv
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -24,7 +25,7 @@ from .config import Config
 from .discogs import DiscogsClient, DiscogsError, have_count, safe_int
 from .ledger import Ledger, album_key
 from .matching import agrees, best_runout_match, front_back_agreement, is_runout_hit
-from .ui import RunUI
+from .ui import Reporter, RunUI
 from .vision import (
     AlbumExtraction,
     VisionExtractor,
@@ -542,7 +543,7 @@ class _Cataloguer:
         ledger: Ledger,
         resolver: Resolver,
         extractor: VisionExtractor,
-        ui: RunUI,
+        ui: Reporter,
         owned: set[int],
         folder_id: int,
         commit: bool,
@@ -709,9 +710,16 @@ def run(
     folder_name: str | None,
     cover_match: bool = True,
     console: Console | None = None,
+    reporter_factory: Callable[[int], Reporter] | None = None,
 ) -> int:
-    """Process a folder of photos. Returns a process exit code (0 = ok)."""
+    """Process a folder of photos. Returns a process exit code (0 = ok).
+
+    `reporter_factory(total) -> Reporter` lets a caller (e.g. the web UI) swap
+    the terminal renderer for its own. Defaults to the rich console UI."""
     console = console or Console()
+    make_reporter = reporter_factory or (
+        lambda total: RunUI(console, total=total, commit=commit)
+    )
 
     if not photos_dir.is_dir():
         console.print(f"[red]Not a directory:[/red] {photos_dir}")
@@ -723,7 +731,7 @@ def run(
         return 0
 
     groups, leftovers = group_images(images)
-    ui = RunUI(console, total=len(groups), commit=commit)
+    ui = make_reporter(len(groups))
     if leftovers:
         ui.leftovers([p.name for p in leftovers])
         return 1
@@ -736,8 +744,7 @@ def run(
         target_folder = folder_name or config.discogs_folder
         try:
             folder_id = client.resolve_folder_id(target_folder)
-            with console.status("[dim]Pulling your Discogs collection for dedupe…[/dim]"):
-                owned = client.get_collection_release_ids()
+            owned = client.get_collection_release_ids()
         except DiscogsError as exc:
             console.print(f"[red]Discogs setup failed:[/red] {exc}")
             return 2

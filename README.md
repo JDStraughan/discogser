@@ -126,6 +126,21 @@ discogser ./photos --commit --folder "New Arrivals" --no-cover
 
 No install? `python -m discogser ./photos` works straight from a clone.
 
+### Browser UI
+
+Prefer not to live in a terminal? Install the web extra and run a small local
+app:
+
+```bash
+pip install -e ".[web]"   # or: pip install "discogser[web]"
+discogser-web             # opens on http://127.0.0.1:8765
+```
+
+Paste your photos folder, choose dry run or commit, and watch the same matching
+engine stream results into a live, color-coded table with clickable Discogs
+links. The server binds to localhost only, since it uses your tokens; do not
+expose it to a network.
+
 ### Watching it run
 
 The output is built for scanning a long run without eye strain. A pinned bottom
@@ -207,8 +222,9 @@ sequence-integrity logic. Run it once before pointing the tool at real photos.
 | Module | Responsibility |
 |---|---|
 | `discogser/cli.py` | Command-line entry point and argument parsing. |
+| `discogser/web.py` | Optional local browser UI (`discogser-web`), streaming over SSE. |
 | `discogser/pipeline.py` | Orchestration, the search and matching ladder, confidence policy, reports. |
-| `discogser/ui.py` | Console rendering: progress bar, live tally, aligned rows, panels. |
+| `discogser/ui.py` | Console rendering and the `Reporter` protocol both front ends share. |
 | `discogser/vision.py` | Image prep, Claude vision extraction, role classification, cover matching. |
 | `discogser/discogs.py` | Discogs client: search, fetch, collection writes, caching, throttling. |
 | `discogser/matching.py` | Runout normalization, fuzzy matching, front/back agreement. |
