@@ -1,6 +1,6 @@
 """Pipeline: discover photos -> group into albums -> extract -> resolve on Discogs.
 
-`run()` is the entry point used by catalog.py. The matching ladder lives in
+`run()` is the entry point used by the CLI. The matching ladder lives in
 `Resolver`: tight signals first (barcode, runout matrix), then visual cover-art
 confirmation, then a text-only guess that is flagged rather than added. Per-album
 orchestration (ledger, dedupe, write, reporting) lives in `_Cataloguer`; all
@@ -18,12 +18,12 @@ from pathlib import Path
 from PIL import Image
 from rich.console import Console
 
-from config import Config
-from discogs import DiscogsClient, DiscogsError, have_count
-from ledger import Ledger, album_key
-from matching import agrees, best_runout_match, front_back_agreement, is_runout_hit
-from ui import RunUI
-from vision import (
+from .config import Config
+from .discogs import DiscogsClient, DiscogsError, have_count
+from .ledger import Ledger, album_key
+from .matching import agrees, best_runout_match, front_back_agreement, is_runout_hit
+from .ui import RunUI
+from .vision import (
     AlbumExtraction,
     VisionExtractor,
     prepare_cover,

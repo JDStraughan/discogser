@@ -28,7 +28,7 @@ class Config:
     user_agent: str
 
     @classmethod
-    def load(cls, env_file: str | os.PathLike[str] | None = None) -> "Config":
+    def load(cls, env_file: str | os.PathLike[str] | None = None) -> Config:
         # Load .env from the project directory (or an explicit path) without
         # clobbering variables already present in the real environment.
         if env_file is not None:

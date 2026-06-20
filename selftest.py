@@ -18,8 +18,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from main import discover_images, group_images, sort_images
-from vision import validate_group_roles
+from discogser.pipeline import discover_images, group_images, sort_images
+from discogser.vision import validate_group_roles
 
 
 def _make_placeholder(path: Path, color: tuple[int, int, int]) -> None:

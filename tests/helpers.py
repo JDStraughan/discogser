@@ -6,7 +6,7 @@ import io
 
 from PIL import Image
 
-from vision import _parse_extraction
+from discogser.vision import _parse_extraction
 
 
 def jpeg_bytes(color: tuple[int, int, int] = (10, 20, 30), size=(80, 80)) -> bytes:

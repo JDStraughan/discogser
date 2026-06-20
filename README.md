@@ -1,5 +1,9 @@
 # discogser
 
+[![CI](https://github.com/JDStraughan/discogser/actions/workflows/ci.yml/badge.svg)](https://github.com/JDStraughan/discogser/actions/workflows/ci.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
+
 Catalog your vinyl into [Discogs](https://www.discogs.com) from phone photos.
 
 You photograph each album as **exactly 3 shots, in strict order**, then repeat:
@@ -73,13 +77,15 @@ so you can fix it — it never silently adds wrong records.
 Requires **Python 3.11+**.
 
 ```bash
+git clone https://github.com/JDStraughan/discogser.git
 cd discogser
 python3.11 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
 
-cp .env.example .env
-# then edit .env (see below)
+pip install -e .            # installs the `discogser` command
+# pip install -e ".[heic]"  # add this if you shoot iPhone HEIC photos
+
+cp .env.example .env        # then edit .env (see below)
 ```
 
 ### `.env`
@@ -111,7 +117,8 @@ For the full offline test suite (matching, resolver tiers, grouping, the
 per-album state machine — all with mocked Discogs/vision, no network):
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -e ".[dev]"
+ruff check .
 pytest
 ```
 
@@ -121,14 +128,16 @@ pytest
 
 ```bash
 # Dry run (default): process everything, write reports, add NOTHING.
-python catalog.py ./photos
+discogser ./photos
 
 # Actually add (exact + cover-confirmed albums) to your collection.
-python catalog.py ./photos --commit
+discogser ./photos --commit
 
 # Add to a specific folder by name; skip the cover-vision step.
-python catalog.py ./photos --commit --folder "New Arrivals" --no-cover
+discogser ./photos --commit --folder "New Arrivals" --no-cover
 ```
+
+> No install? `python -m discogser ./photos` works from a clone too.
 
 ### Watching it run
 
@@ -190,16 +199,16 @@ halts the run, and the close-out is a color-coded summary panel.
 
 ## Module map
 
-| File | Responsibility |
+| Module | Responsibility |
 |---|---|
-| `catalog.py` | CLI entry point / argument parsing. |
-| `main.py` | Pipeline orchestration, search/disambiguation ladder, confidence policy, reports. |
-| `ui.py` | Console rendering: live progress bar + tally, aligned color-coded rows, panels. |
-| `vision.py` | Image prep + Claude vision extraction and role classification. |
-| `discogs.py` | Discogs client: search, release/master fetch, collection writes, caching, throttling. |
-| `matching.py` | Runout normalization + fuzzy matching; front/back agreement. |
-| `ledger.py` | SQLite ledger keyed by image-content hash. |
-| `config.py` | `.env` / environment loading. |
+| `discogser/cli.py` | CLI entry point / argument parsing (the `discogser` command). |
+| `discogser/pipeline.py` | Orchestration, search/disambiguation ladder, confidence policy, reports. |
+| `discogser/ui.py` | Console rendering: live progress bar + tally, aligned color-coded rows, panels. |
+| `discogser/vision.py` | Image prep + Claude vision extraction, role classification, cover matching. |
+| `discogser/discogs.py` | Discogs client: search, release/master fetch, collection writes, caching, throttling. |
+| `discogser/matching.py` | Runout normalization + fuzzy matching; front/back agreement. |
+| `discogser/ledger.py` | SQLite ledger keyed by image-content hash. |
+| `discogser/config.py` | `.env` / environment loading. |
 | `selftest.py` | Offline smoke check for grouping + sequence-integrity validation. |
 | `tests/` | `pytest` suite: matching, resolver tiers, grouping, cataloguer (mocked). |
 

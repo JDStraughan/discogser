@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
-"""discogser — catalog vinyl records into Discogs from phone photos.
+"""Command-line entry point.
 
 Usage:
-    python catalog.py ./photos [--dry-run | --commit] [--folder NAME] [--no-cover]
+    discogser ./photos [--dry-run | --commit] [--folder NAME] [--no-cover]
 
 Defaults to --dry-run: everything is processed and reported, but nothing is
 written to your collection. Pass --commit to actually add releases.
@@ -11,18 +10,17 @@ written to your collection. Pass --commit to actually add releases.
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 from rich.console import Console
 
-from config import Config, ConfigError
-from main import run
+from .config import Config, ConfigError
+from .pipeline import run
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="catalog.py",
+        prog="discogser",
         description="Catalog vinyl records into Discogs from phone photos.",
     )
     parser.add_argument("photos", type=Path, help="Folder of photos (3 per album).")
@@ -71,7 +69,3 @@ def main(argv: list[str] | None = None) -> int:
         cover_match=not args.no_cover,
         console=console,
     )
-
-
-if __name__ == "__main__":
-    sys.exit(main())

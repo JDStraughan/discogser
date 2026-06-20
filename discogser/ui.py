@@ -97,7 +97,7 @@ class RunUI:
 
     # -- lifecycle ----------------------------------------------------------
 
-    def __enter__(self) -> "RunUI":
+    def __enter__(self) -> RunUI:
         self._progress.start()
         self._task = self._progress.add_task(
             "run", total=self.total, tally=self._tally_markup()

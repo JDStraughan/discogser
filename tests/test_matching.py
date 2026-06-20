@@ -1,11 +1,11 @@
-from matching import (
+from discogser.matching import (
     agrees,
     best_runout_match,
     is_runout_hit,
     normalize_matrix,
 )
-from main import primary_artist
-from vision import validate_group_roles
+from discogser.pipeline import primary_artist
+from discogser.vision import validate_group_roles
 
 RUNOUT_IDS = [
     {"type": "Barcode", "value": "5099902987612"},

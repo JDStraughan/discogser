@@ -1,6 +1,6 @@
 from PIL import Image
 
-from main import Confidence, Resolution, _Cataloguer
+from discogser.pipeline import Confidence, Resolution, _Cataloguer
 from tests.helpers import MockExtractor, mkext
 
 

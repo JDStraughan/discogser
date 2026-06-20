@@ -1,4 +1,4 @@
-from main import Confidence, Resolver
+from discogser.pipeline import Confidence, Resolver
 from tests.helpers import MockClient, MockExtractor, mkext, rel
 
 MATRIX = [{"type": "Matrix / Runout", "value": "ABCDEF123 RL"}]

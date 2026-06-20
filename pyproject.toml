@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discogser"
+version = "1.0.0"
+description = "Catalog your vinyl into Discogs from phone photos — Claude vision reads the cover and dead-wax runout to pin the exact pressing."
+readme = "README.md"
+license = { text = "Unlicense" }
+requires-python = ">=3.11"
+authors = [{ name = "Jason Straughan" }]
+keywords = ["discogs", "vinyl", "records", "claude", "anthropic", "cataloging", "cli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: Public Domain",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Capture",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "anthropic==0.69.0",
+    "httpx==0.28.1",
+    "Pillow==11.1.0",
+    "rich==13.9.4",
+    "python-dotenv==1.0.1",
+    "rapidfuzz==3.10.1",
+]
+
+[project.optional-dependencies]
+# iPhone HEIC/HEIF support (optional — JPEG/PNG work without it).
+heic = ["pillow-heif==0.21.0"]
+dev = ["pytest==8.3.4", "ruff==0.8.6"]
+
+[project.urls]
+Homepage = "https://github.com/JDStraughan/discogser"
+Repository = "https://github.com/JDStraughan/discogser"
+Issues = "https://github.com/JDStraughan/discogser/issues"
+
+[project.scripts]
+discogser = "discogser.cli:main"
+
+[tool.setuptools]
+packages = ["discogser"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# Long descriptive strings (vision schemas/prompts) and a few wide table rows
+# read better unwrapped; line length isn't enforced.
+ignore = ["E501"]

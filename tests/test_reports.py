@@ -1,4 +1,4 @@
-from main import _csv_cell
+from discogser.pipeline import _csv_cell
 
 
 def test_csv_formula_injection_is_neutralised():

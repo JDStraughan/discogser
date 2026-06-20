@@ -70,7 +70,7 @@ class DiscogsClient:
         self._client.close()
         self._img.close()
 
-    def __enter__(self) -> "DiscogsClient":
+    def __enter__(self) -> DiscogsClient:
         return self
 
     def __exit__(self, *exc: object) -> None:

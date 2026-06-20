@@ -1,6 +1,6 @@
 from PIL import Image
 
-from main import discover_images, group_images, sort_images
+from discogser.pipeline import discover_images, group_images, sort_images
 
 
 def _make(folder, names):
