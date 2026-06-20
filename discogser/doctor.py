@@ -10,10 +10,17 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.markup import escape
 
 from .config import DEFAULT_FOLDER, DEFAULT_MODEL
 from .discogs import DiscogsClient
-from .pipeline import discover_images, group_images, sort_images
+from .pipeline import (
+    HEIC_HELP,
+    discover_images,
+    group_images,
+    heic_unsupported_count,
+    sort_images,
+)
 
 
 def _short(exc: object) -> str:
@@ -32,12 +39,12 @@ def doctor(
     ok = True
 
     def good(name: str, shown: str) -> None:
-        console.print(f"  [green]✓[/green] {name:<20} {shown}")
+        console.print(f"  [green]✓[/green] {name:<20} {escape(shown)}")
 
     def bad(name: str, why: str) -> None:
         nonlocal ok
         ok = False
-        console.print(f"  [red]✗[/red] {name:<20} [red]{why}[/red]")
+        console.print(f"  [red]✗[/red] {name:<20} [red]{escape(why)}[/red]")
 
     api_key = env.get("ANTHROPIC_API_KEY", "").strip()
     model = env.get("ANTHROPIC_MODEL", "").strip() or DEFAULT_MODEL
@@ -86,6 +93,8 @@ def doctor(
             bad("folder", "not a directory")
         else:
             images = sort_images(discover_images(photos_dir))
+            if heic_unsupported_count(images):
+                bad("HEIC", HEIC_HELP)
             groups, leftovers = group_images(images)
             if not images:
                 console.print("  [yellow]-[/yellow] no images found")

@@ -27,7 +27,13 @@ from typing import Any
 from .config import Config, ConfigError
 from .discogs import DiscogsClient, DiscogsError
 from .ledger import Ledger
-from .pipeline import IMAGE_EXTENSIONS, run
+from .pipeline import (
+    HEIC_HELP,
+    IMAGE_EXTENSIONS,
+    discover_images,
+    heic_unsupported_count,
+    run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +174,13 @@ def create_app() -> Any:
         run_dirs[run_id] = folder
 
         def worker() -> None:
+            images = discover_images(folder)
+            heic = heic_unsupported_count(images)
+            if heic:
+                events.put({"type": "warning", "message": HEIC_HELP})
+                if images and heic == len(images):  # nothing is readable
+                    events.put({"type": "done", "exit_code": 2})
+                    return
             try:
                 code = run(
                     folder, config=config, commit=commit, folder_name=folder_name,
@@ -444,7 +457,8 @@ $("#go").addEventListener("click",async()=>{
           `</div></td>`;
         $("#rows").appendChild(det);
       }
-    } else if(ev.type==="drift"){ banner("Sequence drift at "+ev.names.join(" .. ")+". A shot is missing or extra; fix and re-run."); }
+    } else if(ev.type==="warning"){ banner(ev.message); }
+    else if(ev.type==="drift"){ banner("Sequence drift at "+ev.names.join(" .. ")+". A shot is missing or extra; fix and re-run."); }
     else if(ev.type==="leftovers"){ banner("Trailing photos that don't complete a set of 3: "+ev.names.join(", ")); }
     else if(ev.type==="fatal"){ banner("Run failed: "+ev.message); }
     else if(ev.type==="summary"){

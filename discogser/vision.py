@@ -28,8 +28,11 @@ try:  # iPhone photos are usually HEIC; register the opener if available.
     import pillow_heif
 
     pillow_heif.register_heif_opener()
+    HEIC_AVAILABLE = True
 except Exception:  # pragma: no cover - optional dependency
-    pass
+    HEIC_AVAILABLE = False
+
+HEIC_SUFFIXES = {".heic", ".heif"}
 
 # Image-decode safety: cap pixels well above any phone camera (48MP) but far
 # below a decompression bomb, and tolerate slightly-truncated downloads.

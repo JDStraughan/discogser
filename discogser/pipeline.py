@@ -20,6 +20,7 @@ from pathlib import Path
 
 from PIL import Image
 from rich.console import Console
+from rich.markup import escape
 
 from .config import Config
 from .discogs import DiscogsClient, DiscogsError, have_count, safe_int
@@ -27,6 +28,8 @@ from .ledger import Ledger, album_key
 from .matching import agrees, best_runout_match, front_back_agreement, is_runout_hit
 from .ui import Reporter, RunUI
 from .vision import (
+    HEIC_AVAILABLE,
+    HEIC_SUFFIXES,
     AlbumExtraction,
     VisionExtractor,
     prepare_cover,
@@ -84,6 +87,19 @@ def discover_images(folder: Path) -> list[Path]:
         p for p in folder.iterdir()
         if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
     ]
+
+
+HEIC_HELP = (
+    "These look like iPhone HEIC photos, but HEIC support isn't installed. "
+    'Reinstall with it:  pip install "discogser[heic]"'
+)
+
+
+def heic_unsupported_count(images: list[Path]) -> int:
+    """How many of these images are HEIC/HEIF we can't currently decode."""
+    if HEIC_AVAILABLE:
+        return 0
+    return sum(1 for p in images if p.suffix.lower() in HEIC_SUFFIXES)
 
 
 def sort_images(paths: list[Path]) -> list[Path]:
@@ -754,6 +770,12 @@ def run(
     if not images:
         console.print(f"[yellow]No images found in[/yellow] {photos_dir}")
         return 0
+
+    heic = heic_unsupported_count(images)
+    if heic:
+        console.print(f"[yellow]⚠ {escape(HEIC_HELP)}[/yellow]")
+        if heic == len(images):  # nothing else to do; every photo is unreadable
+            return 2
 
     groups, leftovers = group_images(images)
     ui = make_reporter(len(groups))
