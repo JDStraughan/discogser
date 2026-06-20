@@ -141,3 +141,11 @@ def test_web_ui_accessibility_attributes():
     assert 'aria-live="polite"' in page and 'role="alert"' in page  # live regions
     assert "prefers-reduced-motion" in page                     # motion respected
     assert ":focus-visible" in page and "sr-only" in page
+
+
+def test_escape_helper_neutralises_attribute_breakout():
+    # The client esc() must escape quotes, or Discogs-editable titles/thumbs
+    # could break out of an HTML attribute and inject a handler (CSP allows
+    # inline). The quote-escape map values only appear once esc() covers " and '.
+    page = create_app().test_client().get("/").get_data(as_text=True)
+    assert "&quot;" in page and "&#39;" in page

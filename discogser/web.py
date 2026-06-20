@@ -424,7 +424,7 @@ const $ = s => document.querySelector(s);
 const BADGE = {high:"HIGH",cover:"COVER",medium:"MEDIUM",guess:"GUESS",review:"LOW",skipped:"DUP",error:"ERR"};
 let upload = null, runId = null, currentFolder = "";
 const rowData = {};
-function esc(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function esc(s){ return (s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function toggleDet(i){ const d=document.getElementById("det-"+i); if(d) d.style.display = d.style.display==="none"?"table-row":"none"; }
 async function pick(i, ci){
   const d=rowData[i], c=d.cands[ci];
