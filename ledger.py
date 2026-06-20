@@ -81,8 +81,10 @@ class Ledger:
         """True only if the album was actually written to Discogs. Dry-run
         results are recorded but not committed, so a later --commit re-processes
         them."""
-        entry = self.get(key)
-        return entry is not None and entry.committed
+        row = self._conn.execute(
+            "SELECT committed FROM albums WHERE album_key = ?", (key,)
+        ).fetchone()
+        return bool(row and row["committed"])
 
     def record(
         self,

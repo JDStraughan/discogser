@@ -129,9 +129,9 @@ class DiscogsClient:
 
     # -- disk cache ---------------------------------------------------------
 
-    def _cache_path(self, kind: str, key: str) -> Path:
+    def _cache_path(self, kind: str, key: str, ext: str = ".json") -> Path:
         digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
-        return self._cache_dir / f"{kind}_{digest}.json"
+        return self._cache_dir / f"{kind}_{digest}{ext}"
 
     def _cached(self, kind: str, key: str) -> dict | None:
         path = self._cache_path(kind, key)
@@ -155,7 +155,7 @@ class DiscogsClient:
         failure — cover matching is best-effort and must never crash a run."""
         if not url:
             return None
-        path = self._cache_path("img", url)
+        path = self._cache_path("img", url, ext=".bin")
         if path.exists():
             try:
                 return path.read_bytes()

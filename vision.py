@@ -99,7 +99,7 @@ def _downscale(img: Image.Image, max_dim: int) -> Image.Image:
     if longest <= max_dim:
         return img
     scale = max_dim / float(longest)
-    return img.resize((round(w * scale), round(h * scale)), Image.LANCZOS)
+    return img.resize((round(w * scale), round(h * scale)), Image.Resampling.LANCZOS)
 
 
 def prepare_cover(path: Path, max_dim: int = FRONT_BACK_MAX_DIM) -> str:

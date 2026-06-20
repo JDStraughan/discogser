@@ -37,6 +37,9 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".tif", ".tiff", 
 # rate-limit spend on noisy searches.
 MAX_CANDIDATES = 10
 HOME_COUNTRY = "US"
+# A broad-search candidate whose title agrees with the front below this (0-100)
+# is dropped before guessing, to avoid wild picks.
+PLAUSIBLE_TITLE_THRESHOLD = 45
 
 
 class Confidence(str, Enum):
@@ -56,13 +59,13 @@ def _exif_capture_time(path: Path) -> float:
     try:
         with Image.open(path) as img:
             exif = img.getexif()
-        for tag in (36867, 306):  # DateTimeOriginal, DateTime
-            raw = exif.get(tag) if exif else None
-            if raw:
-                try:
-                    return time.mktime(time.strptime(str(raw), "%Y:%m:%d %H:%M:%S"))
-                except ValueError:
-                    pass
+            for tag in (36867, 306):  # DateTimeOriginal, DateTime
+                raw = exif.get(tag) if exif else None
+                if raw:
+                    try:
+                        return time.mktime(time.strptime(str(raw), "%Y:%m:%d %H:%M:%S"))
+                    except ValueError:
+                        pass
     except Exception:
         pass
     try:
@@ -150,20 +153,19 @@ def _release_formats(release: dict) -> str:
     return "; ".join(parts)
 
 
-# Credit phrases that bloat an artist string and break an exact artist search.
-_ARTIST_CUTS = (
-    " with ", " feat. ", " feat ", " featuring ",
-    " and his ", " and her ", " and the ",
-)
+# Guest-credit separators that bloat an artist string and break an exact artist
+# search. Deliberately conservative: cutting on "/", ",", or "and the" would
+# wreck real names (AC/DC; Earth, Wind & Fire; Sly and the Family Stone), so
+# we only strip unambiguous "featuring"-style credits. Compound classical
+# credits ("Composer / Orchestra") are instead handled by the title/cover tiers.
+_ARTIST_CUTS = (" with ", " feat. ", " feat ", " featuring ")
 
 
 def primary_artist(artist: str) -> str:
-    """Reduce a printed credit to the searchable primary artist.
-
-    'Norman Brooks with Al Goodman and His Orchestra' -> 'Norman Brooks'
-    'Rimsky-Korsakov / L'Orchestre de la ...'         -> 'Rimsky-Korsakov'
-    'The Swingle Singers'                              -> 'Swingle Singers'
-    """
+    """Reduce a printed credit to the searchable primary artist, e.g.
+    'Norman Brooks with Al Goodman and His Orchestra' -> 'Norman Brooks',
+    'The Swingle Singers' -> 'Swingle Singers'. Left intact when there is no
+    clear guest-credit boundary."""
     a = artist.strip()
     if a.lower().startswith("the "):
         a = a[4:]
@@ -172,10 +174,6 @@ def primary_artist(artist: str) -> str:
     for sep in _ARTIST_CUTS:
         i = low.find(sep)
         if i != -1:
-            cut = min(cut, i)
-    for ch in ("/", ","):  # keep '&' — Discogs uses it (e.g. Simon & Garfunkel)
-        i = a.find(ch)
-        if i > 0:
             cut = min(cut, i)
     return a[:cut].strip() or artist.strip()
 
@@ -331,8 +329,7 @@ class Resolver:
     def _runout_match(self, results: list[dict], ext: AlbumExtraction) -> Resolution | None:
         """HIGH resolution if any candidate's Matrix/Runout identifiers match the
         transcribed dead-wax above threshold."""
-        best_result = None
-        best_match = None
+        best = None  # (RunoutMatch, result) — kept together so they can't diverge
         for result in results[:MAX_CANDIDATES]:
             rid = result.get("id")
             if rid is None:
@@ -342,14 +339,15 @@ class Resolver:
             except DiscogsError:
                 continue
             match = best_runout_match(ext.runout.matrix, release.get("identifiers", []))
-            if match is not None and (best_match is None or match.score > best_match.score):
-                best_match, best_result = match, result
-        if not is_runout_hit(best_match):
+            if match is not None and (best is None or match.score > best[0].score):
+                best = (match, result)
+        if best is None or not is_runout_hit(best[0]):
             return None
+        match, result = best
         return Resolution(
-            Confidence.HIGH, f"runout match ({best_match.score:.0f})",
-            int(best_result["id"]), _title_of(best_result),
-            _candidate_url(best_result), alternates=_alternates(results, best_result),
+            Confidence.HIGH, f"runout match ({match.score:.0f})",
+            int(result["id"]), _title_of(result),
+            _candidate_url(result), alternates=_alternates(results, result),
         )
 
     # -- cover matching -----------------------------------------------------
@@ -360,6 +358,7 @@ class Resolver:
         release sharing a confirmed cover. Best-effort: any failure -> []."""
         if not self._cover_match or self._front_path is None:
             return []
+        assert self._extractor is not None  # implied by self._cover_match
 
         ranked = []
         seen_urls: set[str] = set()
@@ -438,7 +437,8 @@ class Resolver:
         empty the list."""
         keep = [
             r for r in results
-            if front_back_agreement(ext.front.artist, ext.front.title, _title_of(r)) >= 45
+            if front_back_agreement(ext.front.artist, ext.front.title, _title_of(r))
+            >= PLAUSIBLE_TITLE_THRESHOLD
         ]
         return keep or results
 
@@ -732,11 +732,16 @@ def run(
 
         with ui:
             ui.header(target_folder, folder_id, len(owned))
+            drifted = False
             for group in groups:
                 if not cataloguer.process(group):
-                    return 1  # sequence drift — already reported
+                    drifted = True  # sequence drift — already reported
+                    break
+            # Always write what we processed, even on a halt.
             _write_results_csv(photos_dir, cataloguer.results_rows)
             _write_review_csv(photos_dir, cataloguer.review_rows)
+            if drifted:
+                return 1
             ui.summary()
 
     return 0
@@ -848,8 +853,20 @@ def _write_review_csv(photos_dir: Path, rows: list[dict]) -> None:
     _write_csv(photos_dir / "review.csv", _REVIEW_FIELDS, rows)
 
 
+# Leading characters a spreadsheet may interpret as a formula (CSV injection).
+_CSV_FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_cell(value: object) -> str:
+    """Neutralise spreadsheet formula injection: a cell beginning with a
+    formula trigger is prefixed with a quote so it's treated as text."""
+    s = "" if value is None else str(value)
+    return "'" + s if s[:1] in _CSV_FORMULA_LEADS else s
+
+
 def _write_csv(path: Path, fields: list[str], rows: list[dict]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
-        writer.writerows(rows)
+        for row in rows:
+            writer.writerow({k: _csv_cell(row.get(k)) for k in fields})

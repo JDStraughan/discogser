@@ -107,6 +107,14 @@ python selftest.py
 You should see all checks pass, including a clean group being accepted and
 drifted groups (missed/extra shot) being rejected.
 
+For the full offline test suite (matching, resolver tiers, grouping, the
+per-album state machine — all with mocked Discogs/vision, no network):
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ---
 
 ## Run
@@ -192,7 +200,8 @@ halts the run, and the close-out is a color-coded summary panel.
 | `matching.py` | Runout normalization + fuzzy matching; front/back agreement. |
 | `ledger.py` | SQLite ledger keyed by image-content hash. |
 | `config.py` | `.env` / environment loading. |
-| `selftest.py` | Offline checks for grouping + sequence-integrity validation. |
+| `selftest.py` | Offline smoke check for grouping + sequence-integrity validation. |
+| `tests/` | `pytest` suite: matching, resolver tiers, grouping, cataloguer (mocked). |
 
 ## License
 
