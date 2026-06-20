@@ -41,6 +41,33 @@ HOST = "127.0.0.1"
 PORT = 8765
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB total per upload
 
+# The server holds the user's Discogs + Anthropic tokens, so it must only ever
+# answer requests addressed to localhost. A foreign Host header means a
+# DNS-rebinding attempt from a page the user is visiting; reject it.
+_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+# default-src 'none' locks everything down; we then open exactly what the single
+# inline page needs. 'unsafe-inline' is retained for the inline <style>/<script>
+# (this is one self-contained local document); all dynamic text is escaped
+# before insertion, and connect/img/frame/base are tightly scoped.
+_CSP = (
+    "default-src 'none'; "
+    "img-src 'self' https://*.discogs.com data:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "connect-src 'self'; "
+    "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
+
+
+def _is_localhost(host: str) -> bool:
+    host = (host or "").strip().lower()
+    if host.startswith("["):              # IPv6 literal: [::1] or [::1]:8765
+        host = host[1:].split("]")[0]
+    else:
+        host = host.split(":")[0]         # 127.0.0.1:8765 -> 127.0.0.1
+    return host in _ALLOWED_HOSTS
+
 
 def _bump(counts: dict[str, int], status: str) -> None:
     """Increment the tally buckets for a status, mirroring the terminal UI."""
@@ -124,6 +151,20 @@ def create_app() -> Any:
     runs: dict[str, queue.Queue] = {}
     run_dirs: dict[str, Path] = {}
     uploads: dict[str, Path] = {}
+
+    @app.before_request
+    def _guard_host():
+        if not _is_localhost(request.host):
+            return "forbidden host", 403
+
+    @app.after_request
+    def _security_headers(resp):
+        resp.headers["Content-Security-Policy"] = _CSP
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "no-referrer"
+        resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        return resp
 
     @app.get("/")
     def index() -> str:

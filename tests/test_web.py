@@ -109,3 +109,24 @@ def test_resolve_rejects_bad_release_id():
     client = create_app().test_client()
     assert client.post("/resolve", json={}).status_code == 400
     assert client.post("/resolve", json={"release_id": "not-an-int"}).status_code == 400
+
+
+def test_security_headers_present():
+    resp = create_app().test_client().get("/")
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"
+    assert resp.headers["X-Frame-Options"] == "DENY"
+    assert resp.headers["Referrer-Policy"] == "no-referrer"
+    csp = resp.headers["Content-Security-Policy"]
+    assert "default-src 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert "img-src 'self' https://*.discogs.com" in csp
+    assert "connect-src 'self'" in csp
+
+
+def test_host_guard_blocks_foreign_allows_localhost():
+    client = create_app().test_client()
+    # DNS-rebinding: a foreign Host pointed at 127.0.0.1 is rejected.
+    assert client.get("/", headers={"Host": "attacker.example.com"}).status_code == 403
+    # localhost variants are allowed.
+    assert client.get("/", headers={"Host": "127.0.0.1:8765"}).status_code == 200
+    assert client.get("/", headers={"Host": "localhost"}).status_code == 200
