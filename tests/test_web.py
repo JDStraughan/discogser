@@ -125,6 +125,22 @@ def test_security_headers_present():
     assert "connect-src 'self'" in csp
 
 
+def test_only_upload_temp_dirs_are_reapable(tmp_path):
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    from discogser.web import _UPLOAD_PREFIX, _is_reapable
+
+    up = Path(tempfile.mkdtemp(prefix=_UPLOAD_PREFIX))
+    try:
+        assert _is_reapable(up)               # our upload temp dir -> reapable
+        assert not _is_reapable(Path.home())  # never a user's home
+        assert not _is_reapable(tmp_path)     # not an upload dir -> never reaped
+    finally:
+        shutil.rmtree(up, ignore_errors=True)
+
+
 def test_post_without_csrf_header_is_blocked():
     client = create_app().test_client()
     # No X-Requested-With -> rejected before any work (CSRF defense).

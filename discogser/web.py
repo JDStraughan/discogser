@@ -40,6 +40,9 @@ logger = logging.getLogger(__name__)
 HOST = "127.0.0.1"
 PORT = 8765
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB total per upload
+MAX_RETAINED_RUNS = 8  # keep recent runs downloadable; reap older upload temp dirs
+_UPLOAD_PREFIX = "discogser_up_"
+_TMP_ROOT = tempfile.gettempdir()
 
 # The server holds the user's Discogs + Anthropic tokens, so it must only ever
 # answer requests addressed to localhost. A foreign Host header means a
@@ -58,6 +61,11 @@ _CSP = (
     "connect-src 'self'; "
     "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 )
+
+
+def _is_reapable(d: Path) -> bool:
+    """True only for our own upload temp dirs - never a user's real folder."""
+    return d.name.startswith(_UPLOAD_PREFIX) and str(d).startswith(_TMP_ROOT)
 
 
 def _is_localhost(host: str) -> bool:
@@ -154,6 +162,21 @@ def create_app() -> Any:
     runs: dict[str, queue.Queue] = {}
     run_dirs: dict[str, Path] = {}
     uploads: dict[str, Path] = {}
+    order: list[str] = []
+
+    def _retain(run_id: str) -> None:
+        """Bound retained runs; reap only our own upload temp dirs (never a
+        user's real folder) so photos don't pile up in /tmp forever."""
+        order.append(run_id)
+        while len(order) > MAX_RETAINED_RUNS:
+            old = order.pop(0)
+            runs.pop(old, None)
+            d = run_dirs.pop(old, None)
+            if d is not None and _is_reapable(d):
+                shutil.rmtree(d, ignore_errors=True)
+                for uid, udir in list(uploads.items()):
+                    if udir == d:
+                        uploads.pop(uid, None)
 
     @app.before_request
     def _guard():
@@ -221,6 +244,7 @@ def create_app() -> Any:
         events: queue.Queue = queue.Queue()
         runs[run_id] = events
         run_dirs[run_id] = folder
+        _retain(run_id)
 
         def worker() -> None:
             images = discover_images(folder)
