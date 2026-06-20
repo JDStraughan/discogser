@@ -323,6 +323,10 @@ class DiscogsClient:
             page += 1
         return ids
 
+    def whoami(self) -> dict:
+        """GET /oauth/identity — verifies the token and returns the account."""
+        return self._request("GET", "/oauth/identity")
+
     def add_to_collection(self, folder_id: int, release_id: int) -> dict:
         return self._request(
             "POST",

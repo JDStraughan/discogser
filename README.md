@@ -111,6 +111,28 @@ Set these in `.env`:
 | `DISCOGS_FOLDER` | Collection folder to add to. Defaults to `Uncategorized`. |
 | `USER_AGENT` | **Required.** A unique, descriptive value with contact info, such as `discogser/1.0 +mailto:you@example.com`. Discogs throttles hard without one. |
 
+### Check it before you run it
+
+The preflight confirms your config is present, that both API keys actually work,
+and that a photo folder groups cleanly, so a real run never starts misconfigured:
+
+```bash
+discogser --doctor ./photos
+```
+
+```
+Config
+  ✓ ANTHROPIC_API_KEY    set
+  ✓ DISCOGS_USERNAME     yourname
+Connectivity
+  ✓ Anthropic            key valid, claude-sonnet-4-6 responded
+  ✓ Discogs              authenticated as yourname
+Photos (./photos)
+  ✓ 5 albums, no leftovers
+
+All good. You're ready to run.
+```
+
 ## Run
 
 ```bash
@@ -136,10 +158,11 @@ pip install -e ".[web]"   # or: pip install "discogser[web]"
 discogser-web             # opens on http://127.0.0.1:8765
 ```
 
-Paste your photos folder, choose dry run or commit, and watch the same matching
-engine stream results into a live, color-coded table with clickable Discogs
-links. The server binds to localhost only, since it uses your tokens; do not
-expose it to a network.
+Drag your photos onto the page (or paste a folder path), choose dry run or
+commit, and watch the same matching engine stream results into a live,
+color-coded table with clickable Discogs links and downloadable reports. The
+server binds to localhost only, since it uses your tokens; do not expose it to a
+network.
 
 ### Watching it run
 
@@ -221,7 +244,8 @@ sequence-integrity logic. Run it once before pointing the tool at real photos.
 
 | Module | Responsibility |
 |---|---|
-| `discogser/cli.py` | Command-line entry point and argument parsing. |
+| `discogser/cli.py` | Command-line entry point, argument parsing, and `--doctor`. |
+| `discogser/doctor.py` | Preflight checks: config, API connectivity, photo grouping. |
 | `discogser/web.py` | Optional local browser UI (`discogser-web`), streaming over SSE. |
 | `discogser/pipeline.py` | Orchestration, the search and matching ladder, confidence policy, reports. |
 | `discogser/ui.py` | Console rendering and the `Reporter` protocol both front ends share. |

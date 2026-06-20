@@ -1,8 +1,10 @@
 """A small local web UI for people who would rather not live in a terminal.
 
-`discogser-web` starts a server on http://127.0.0.1:8765. You paste the path to
-your photos folder, pick dry-run or commit, and watch the same matching engine
-stream results into a live table in the browser. Requires the `web` extra:
+`discogser-web` starts a server on http://127.0.0.1:8765. Drag your photos onto
+the page (or paste a folder path), pick dry-run or commit, and watch the same
+matching engine stream results into a live table in the browser.
+
+Requires the `web` extra:
 
     pip install "discogser[web]"
 
@@ -16,21 +18,24 @@ import json
 import logging
 import queue
 import secrets
+import shutil
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any
 
 from .config import Config, ConfigError
-from .pipeline import run
+from .pipeline import IMAGE_EXTENSIONS, run
 
 logger = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"
 PORT = 8765
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB total per upload
 
 
-# Status -> the bucket(s) it increments, mirroring the terminal tally.
 def _bump(counts: dict[str, int], status: str) -> None:
+    """Increment the tally buckets for a status, mirroring the terminal UI."""
     if status == "high":
         counts["added"] += 1
     elif status == "cover":
@@ -100,21 +105,50 @@ class WebReporter:
 
 
 def create_app() -> Any:
-    from flask import Flask, Response, jsonify, render_template_string, request
+    from flask import Flask, Response, jsonify, render_template_string, request, send_file
+    from werkzeug.utils import secure_filename
 
     app = Flask(__name__)
+    app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
     runs: dict[str, queue.Queue] = {}
+    run_dirs: dict[str, Path] = {}
+    uploads: dict[str, Path] = {}
 
     @app.get("/")
     def index() -> str:
         return render_template_string(_PAGE)
 
+    @app.post("/upload")
+    def upload():
+        files = request.files.getlist("photos")
+        if not files:
+            return jsonify(error="No files received."), 400
+        dest = Path(tempfile.mkdtemp(prefix="discogser_up_"))
+        saved = 0
+        for f in files:
+            name = secure_filename(f.filename or "")
+            if name and Path(name).suffix.lower() in IMAGE_EXTENSIONS:
+                f.save(dest / name)
+                saved += 1
+        if not saved:
+            shutil.rmtree(dest, ignore_errors=True)
+            return jsonify(error="No image files in that selection."), 400
+        upload_id = secrets.token_hex(8)
+        uploads[upload_id] = dest
+        return jsonify(upload_id=upload_id, count=saved)
+
     @app.post("/run")
     def start():
         data = request.get_json(silent=True) or {}
-        folder = Path(str(data.get("folder", "")).strip()).expanduser()
-        if not folder.is_dir():
-            return jsonify(error=f"Folder not found: {folder}"), 400
+        upload_id = data.get("upload_id")
+        if upload_id:
+            folder = uploads.get(upload_id)
+            if folder is None or not folder.is_dir():
+                return jsonify(error="Upload expired; please re-add your photos."), 400
+        else:
+            folder = Path(str(data.get("folder", "")).strip()).expanduser()
+            if not folder.is_dir():
+                return jsonify(error=f"Folder not found: {folder}"), 400
         try:
             config = Config.load()
         except ConfigError as exc:
@@ -126,6 +160,7 @@ def create_app() -> Any:
         run_id = secrets.token_hex(8)
         events: queue.Queue = queue.Queue()
         runs[run_id] = events
+        run_dirs[run_id] = folder
 
         def worker() -> None:
             try:
@@ -161,6 +196,18 @@ def create_app() -> Any:
 
         return Response(gen(), mimetype="text/event-stream")
 
+    @app.get("/download/<run_id>/<name>")
+    def download(run_id: str, name: str):
+        if name not in ("results.csv", "review.csv"):
+            return "not found", 404
+        folder = run_dirs.get(run_id)
+        if folder is None:
+            return "not found", 404
+        path = folder / name
+        if not path.is_file():
+            return "not found", 404
+        return send_file(path, as_attachment=True, download_name=name)
+
     return app
 
 
@@ -182,65 +229,70 @@ _PAGE = """<!doctype html>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; background:#0f1115; color:#e6e6e6;
+  body { margin:0; background:#0f1115; color:#e6e6e6;
          font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   header { padding:18px 24px; border-bottom:1px solid #232733; }
-  h1 { margin:0; font-size:20px; letter-spacing:.5px; }
-  h1 span { color:#4fd6d6; }
+  h1 { margin:0; font-size:20px; letter-spacing:.5px; } h1 span { color:#4fd6d6; }
+  .sub { color:#6b7383; font-size:12px; margin-top:2px; }
   .wrap { max-width:1100px; margin:0 auto; padding:24px; }
-  form { display:flex; flex-wrap:wrap; gap:12px 18px; align-items:end;
-         background:#151823; padding:16px; border:1px solid #232733; border-radius:10px; }
-  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#9aa4b2; }
+  .drop { border:2px dashed #2c3340; border-radius:12px; padding:34px; text-align:center;
+          color:#9aa4b2; cursor:pointer; transition:.15s; background:#131722; }
+  .drop:hover, .drop.over { border-color:#4fd6d6; color:#cdd3dd; background:#15202b; }
+  .drop b { color:#e6e6e6; }
+  .opts { display:flex; flex-wrap:wrap; gap:14px 20px; align-items:center; margin:16px 2px; }
+  label { font-size:12px; color:#9aa4b2; display:flex; align-items:center; gap:6px; }
   input[type=text] { background:#0f1115; border:1px solid #2a2f3d; color:#e6e6e6;
-         padding:8px 10px; border-radius:6px; min-width:340px; font:inherit; }
-  .row { display:flex; gap:16px; align-items:center; }
-  button { background:#4fd6d6; color:#0f1115; border:0; padding:10px 18px;
-           border-radius:6px; font:inherit; font-weight:700; cursor:pointer; }
-  button:disabled { opacity:.5; cursor:not-allowed; }
+         padding:8px 10px; border-radius:6px; min-width:260px; font:inherit; }
+  button { background:#4fd6d6; color:#0f1115; border:0; padding:10px 20px; border-radius:6px;
+           font:inherit; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .pathline { margin-top:10px; color:#6b7383; font-size:12px; }
+  .pathline a { color:#4fd6d6; cursor:pointer; }
   .meta { color:#9aa4b2; margin:18px 2px 8px; min-height:20px; }
   table { width:100%; border-collapse:collapse; margin-top:8px; }
-  th, td { text-align:left; padding:6px 10px; border-bottom:1px solid #1c2029; white-space:nowrap; }
+  th,td { text-align:left; padding:6px 10px; border-bottom:1px solid #1c2029; white-space:nowrap; }
   th { color:#6b7383; font-weight:500; font-size:12px; }
-  td.album { white-space:normal; }
-  td.num, td.val { text-align:right; color:#9aa4b2; }
+  td.album { white-space:normal; } td.num,td.val { text-align:right; color:#9aa4b2; }
   a { color:#4fd6d6; text-decoration:none; } a:hover { text-decoration:underline; }
   .badge { font-weight:700; }
-  .high { color:#5ad15a; } .cover { color:#4fd6d6; } .medium { color:#e0c64b; }
-  .guess { color:#d46fd4; } .review { color:#e25c5c; } .skipped { color:#7c8492; }
-  .error { color:#ff6b6b; } .price { color:#5ad15a; }
-  .banner { margin-top:18px; padding:14px 16px; border-radius:8px; display:none; }
+  .high{color:#5ad15a;} .cover{color:#4fd6d6;} .medium{color:#e0c64b;}
+  .guess{color:#d46fd4;} .review{color:#e25c5c;} .skipped{color:#7c8492;} .error{color:#ff6b6b;}
+  .price{color:#5ad15a;}
+  .banner { margin-top:18px; padding:14px 16px; border-radius:8px; display:none;
+            background:#2a1416; border:1px solid #5a2a2e; color:#ffb4b4; }
   .banner.show { display:block; }
-  .banner.bad { background:#2a1416; border:1px solid #5a2a2e; color:#ffb4b4; }
-  .summary { margin-top:18px; padding:14px 16px; background:#151823;
-             border:1px solid #232733; border-radius:10px; display:none; }
-  .summary.show { display:block; }
+  .summary { margin-top:18px; padding:14px 16px; background:#151823; border:1px solid #232733;
+             border-radius:10px; display:none; } .summary.show { display:block; }
   .summary b { font-size:18px; }
   .pill { display:inline-block; padding:1px 8px; border-radius:20px; font-size:11px;
           background:#232733; color:#cdd3dd; margin-left:6px; }
 </style></head>
 <body>
-<header><div class="wrap" style="padding:0"><h1>discog<span>ser</span></h1></div></header>
+<header><div class="wrap" style="padding:0">
+  <h1>discog<span>ser</span></h1>
+  <div class="sub">catalog your vinyl into Discogs from photos</div>
+</div></header>
+
 <div class="wrap">
-  <form id="f">
-    <label>Photos folder
-      <input type="text" id="folder" placeholder="/path/to/photos" required>
-    </label>
-    <label>Discogs folder (optional)
-      <input type="text" id="folder_name" placeholder="Uncategorized">
-    </label>
-    <div class="row">
-      <label style="flex-direction:row; align-items:center; gap:6px">
-        <input type="checkbox" id="commit"> commit (actually add)
-      </label>
-      <label style="flex-direction:row; align-items:center; gap:6px">
-        <input type="checkbox" id="no_cover"> skip cover match
-      </label>
-    </div>
-    <button type="submit" id="go">Run</button>
-  </form>
+  <div class="drop" id="drop">
+    <div><b>Drop your photos here</b>, or click to choose</div>
+    <div class="sub" id="dropcount" style="margin-top:6px">three shots per record: front, back, side-A runout</div>
+  </div>
+  <input type="file" id="files" multiple accept="image/*,.heic,.heif,.tif,.tiff,.webp" hidden>
+  <div class="pathline">on this machine already? <a id="usepath">paste a folder path instead</a></div>
+  <div id="pathbox" style="display:none; margin-top:8px">
+    <input type="text" id="folder" placeholder="/path/to/photos">
+  </div>
+
+  <div class="opts">
+    <input type="text" id="folder_name" placeholder="Discogs folder (Uncategorized)">
+    <label><input type="checkbox" id="commit"> commit (actually add)</label>
+    <label><input type="checkbox" id="no_cover"> skip cover match</label>
+    <button id="go" disabled>Run</button>
+  </div>
 
   <div class="meta" id="meta"></div>
-  <div class="banner bad" id="banner"></div>
+  <div class="banner" id="banner"></div>
 
   <table id="grid" style="display:none">
     <thead><tr><th>#</th><th>conf</th><th>artist - title</th>
@@ -253,67 +305,81 @@ _PAGE = """<!doctype html>
 
 <script>
 const $ = s => document.querySelector(s);
-const BADGE = {high:"HIGH",cover:"COVER",medium:"MEDIUM",guess:"GUESS",
-               review:"LOW",skipped:"DUP",error:"ERR"};
-function banner(msg){ const b=$("#banner"); b.textContent=msg; b.classList.add("show"); }
+const BADGE = {high:"HIGH",cover:"COVER",medium:"MEDIUM",guess:"GUESS",review:"LOW",skipped:"DUP",error:"ERR"};
+let upload = null, runId = null;
+function esc(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function banner(m){ const b=$("#banner"); b.textContent=m; b.classList.add("show"); }
+function ready(){ $("#go").disabled = !(upload || $("#folder").value.trim()); }
 
-$("#f").addEventListener("submit", async (e) => {
-  e.preventDefault();
+const drop=$("#drop"), input=$("#files");
+drop.addEventListener("click",()=>input.click());
+drop.addEventListener("dragover",e=>{e.preventDefault();drop.classList.add("over");});
+drop.addEventListener("dragleave",()=>drop.classList.remove("over"));
+drop.addEventListener("drop",e=>{e.preventDefault();drop.classList.remove("over");sendFiles(e.dataTransfer.files);});
+input.addEventListener("change",()=>sendFiles(input.files));
+$("#usepath").addEventListener("click",()=>{ $("#pathbox").style.display="block"; $("#folder").focus(); });
+$("#folder").addEventListener("input",()=>{ upload=null; ready(); });
+
+async function sendFiles(fileList){
+  const files=[...fileList].filter(f=>/\\.(jpe?g|png|heic|heif|tiff?|webp)$/i.test(f.name));
+  if(!files.length){ banner("No image files in that selection."); return; }
+  $("#banner").classList.remove("show");
+  $("#dropcount").textContent="uploading "+files.length+" photos…";
+  const fd=new FormData(); files.forEach(f=>fd.append("photos",f));
+  try{
+    const r=await (await fetch("/upload",{method:"POST",body:fd})).json();
+    if(r.error){ banner(r.error); $("#dropcount").textContent=""; return; }
+    upload=r.upload_id;
+    $("#dropcount").textContent=r.count+" photos ready  ("+Math.round(r.count/3)+" albums)";
+    ready();
+  }catch(err){ banner("Upload failed: "+err); }
+}
+
+$("#go").addEventListener("click",async()=>{
   $("#rows").innerHTML=""; $("#grid").style.display="none";
   $("#summary").classList.remove("show"); $("#banner").classList.remove("show");
   $("#meta").textContent="Starting…"; $("#go").disabled=true;
-
-  const body = {
-    folder: $("#folder").value, folder_name: $("#folder_name").value,
-    commit: $("#commit").checked, no_cover: $("#no_cover").checked,
-  };
+  const body={ commit:$("#commit").checked, no_cover:$("#no_cover").checked,
+               folder_name:$("#folder_name").value };
+  if(upload) body.upload_id=upload; else body.folder=$("#folder").value;
   let res;
-  try { res = await (await fetch("/run",{method:"POST",
-        headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json(); }
-  catch (err) { $("#meta").textContent=""; banner("Request failed: "+err); $("#go").disabled=false; return; }
-  if (res.error){ $("#meta").textContent=""; banner(res.error); $("#go").disabled=false; return; }
-
-  const es = new EventSource("/stream/"+res.run_id);
-  es.onmessage = (m) => {
-    const ev = JSON.parse(m.data);
-    if (ev.type==="header"){
-      $("#meta").textContent =
-        `${ev.commit?"COMMIT":"DRY-RUN"} · ${ev.total} albums · folder ${ev.folder} · you own ${ev.owned}`;
+  try{ res=await (await fetch("/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json(); }
+  catch(err){ $("#meta").textContent=""; banner("Request failed: "+err); ready(); return; }
+  if(res.error){ $("#meta").textContent=""; banner(res.error); ready(); return; }
+  runId=res.run_id;
+  const es=new EventSource("/stream/"+runId);
+  es.onmessage=m=>{
+    const ev=JSON.parse(m.data);
+    if(ev.type==="header"){
+      $("#meta").textContent=`${ev.commit?"COMMIT":"DRY-RUN"} · ${ev.total} albums · folder ${esc(ev.folder)} · you own ${ev.owned}`;
       $("#grid").style.display="table";
-    } else if (ev.type==="album"){
+    } else if(ev.type==="album"){
+      const rel=ev.url?`<a href="${ev.url}" target="_blank">r${ev.release_id}</a>`:"-";
+      const val=(ev.value&&ev.value!=="-")?`<span class="price">${ev.value}</span>`:"-";
       const tr=document.createElement("tr");
-      const rel = ev.url ? `<a href="${ev.url}" target="_blank">r${ev.release_id}</a>` : "-";
-      const val = (ev.value && ev.value!=="-") ? `<span class="price">${ev.value}</span>` : "-";
-      tr.innerHTML =
-        `<td class="num">${ev.index}/${ev.total}</td>`+
+      tr.innerHTML=`<td class="num">${ev.index}/${ev.total}</td>`+
         `<td class="badge ${ev.status}">${BADGE[ev.status]||ev.status}</td>`+
         `<td class="album"><b>${esc(ev.artist)}</b>${ev.title?" - "+esc(ev.title):""}</td>`+
-        `<td>${rel}</td><td class="val">${val}</td>`+
-        `<td style="color:#8b93a1">${esc(ev.signal)}</td>`;
+        `<td>${rel}</td><td class="val">${val}</td><td style="color:#8b93a1">${esc(ev.signal)}</td>`;
       $("#rows").appendChild(tr);
-    } else if (ev.type==="drift"){
-      banner("Sequence drift at "+ev.names.join(" .. ")+". A shot is missing or extra; fix the folder and re-run.");
-    } else if (ev.type==="leftovers"){
-      banner("Trailing photos that don't complete a set of 3: "+ev.names.join(", "));
-    } else if (ev.type==="fatal"){
-      banner("Run failed: "+ev.message);
-    } else if (ev.type==="summary"){
-      const verb = ev.commit ? "added" : "would add";
-      const tok = ev.tokens ? `<span class="pill">${ev.tokens[0].toLocaleString()} in / ${ev.tokens[1].toLocaleString()} out tokens</span>` : "";
-      $("#summary").innerHTML =
+    } else if(ev.type==="drift"){ banner("Sequence drift at "+ev.names.join(" .. ")+". A shot is missing or extra; fix and re-run."); }
+    else if(ev.type==="leftovers"){ banner("Trailing photos that don't complete a set of 3: "+ev.names.join(", ")); }
+    else if(ev.type==="fatal"){ banner("Run failed: "+ev.message); }
+    else if(ev.type==="summary"){
+      const verb=ev.commit?"added":"would add";
+      const tok=ev.tokens?`<span class="pill">${ev.tokens[0].toLocaleString()} in / ${ev.tokens[1].toLocaleString()} out tokens</span>`:"";
+      const dl=`<a href="/download/${runId}/results.csv">results.csv</a> · <a href="/download/${runId}/review.csv">review.csv</a>`;
+      $("#summary").innerHTML=
         `<b class="high">${ev.added}</b> ${verb} <span class="pill">${ev.covers} cover · ${ev.medium} medium</span><br>`+
         `<b class="review">${ev.review}</b> flagged for review <span class="pill">${ev.guesses} hunches</span><br>`+
-        `<b class="skipped">${ev.skipped}</b> skipped &nbsp; <b class="error">${ev.errors}</b> errors ${tok}`;
+        `<b class="skipped">${ev.skipped}</b> skipped &nbsp; <b class="error">${ev.errors}</b> errors ${tok}<br>`+
+        `<div class="sub" style="margin-top:8px">download ${dl}</div>`;
       $("#summary").classList.add("show");
-    } else if (ev.type==="done"){
-      es.close(); $("#go").disabled=false;
-      if (!$("#meta").textContent || $("#meta").textContent==="Starting…")
-        $("#meta").textContent="Finished (exit "+ev.exit_code+").";
-    }
+    } else if(ev.type==="done"){ es.close(); ready();
+      if($("#meta").textContent==="Starting…") $("#meta").textContent="Finished (exit "+ev.exit_code+")."; }
   };
-  es.onerror = () => { es.close(); $("#go").disabled=false; };
+  es.onerror=()=>{ es.close(); ready(); };
 });
-function esc(s){ return (s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 </script>
 </body></html>
 """

@@ -2,6 +2,7 @@
 
 Usage:
     discogser ./photos [--dry-run | --commit] [--folder NAME] [--no-cover]
+    discogser --doctor [./photos]      # verify keys + folder before a real run
 
 Defaults to --dry-run: everything is processed and reported, but nothing is
 written to your collection. Pass --commit to actually add releases.
@@ -24,7 +25,15 @@ def build_parser() -> argparse.ArgumentParser:
         prog="discogser",
         description="Catalog vinyl records into Discogs from phone photos.",
     )
-    parser.add_argument("photos", type=Path, help="Folder of photos (3 per album).")
+    parser.add_argument(
+        "photos", type=Path, nargs="?",
+        help="Folder of photos (3 per album).",
+    )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="Run preflight checks (config, API keys, photo grouping) and exit.",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--dry-run",
@@ -73,9 +82,17 @@ def _setup_logging(verbose: bool, log_file: Path | None) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     _setup_logging(args.verbose, args.log_file)
     console = Console()
+
+    if args.doctor:
+        from .doctor import doctor
+        return doctor(console, args.photos)
+
+    if args.photos is None:
+        parser.error("the photos folder is required (or use --doctor)")
 
     try:
         config = Config.load()

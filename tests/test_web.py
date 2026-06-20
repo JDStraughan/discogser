@@ -1,10 +1,19 @@
+import io
 import queue
 
 import pytest
+from PIL import Image
 
 pytest.importorskip("flask")
 
 from discogser.web import WebReporter, create_app  # noqa: E402
+
+
+def _jpeg():
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (1, 2, 3)).save(buf, "JPEG")
+    buf.seek(0)
+    return buf
 
 
 def test_reporter_emits_events_and_tally():
@@ -46,3 +55,37 @@ def test_run_rejects_missing_folder(tmp_path):
 def test_stream_unknown_run_is_404():
     client = create_app().test_client()
     assert client.get("/stream/deadbeef").status_code == 404
+
+
+def test_upload_accepts_images_and_run_starts():
+    client = create_app().test_client()
+    resp = client.post(
+        "/upload",
+        data={"photos": [(_jpeg(), "IMG_1.jpg"), (_jpeg(), "IMG_2.jpg")]},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["count"] == 2 and body["upload_id"]
+
+
+def test_upload_rejects_non_images():
+    client = create_app().test_client()
+    resp = client.post(
+        "/upload",
+        data={"photos": [(io.BytesIO(b"hello"), "notes.txt")]},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+
+
+def test_run_rejects_expired_upload():
+    client = create_app().test_client()
+    resp = client.post("/run", json={"upload_id": "deadbeef"})
+    assert resp.status_code == 400
+
+
+def test_download_unknown_run_is_404():
+    client = create_app().test_client()
+    assert client.get("/download/deadbeef/results.csv").status_code == 404
+    assert client.get("/download/deadbeef/secrets.txt").status_code == 404
