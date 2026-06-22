@@ -4,7 +4,7 @@ httpx==0.28.1
 Pillow==12.2.0
 rich==13.9.4
 python-dotenv==1.2.2
-rapidfuzz==3.10.1
+rapidfuzz==3.14.5
 # Optional but recommended: lets Pillow read iPhone HEIC/HEIF photos.
 # If you only ever shoot JPEG/PNG you can drop this line.
 pillow-heif==1.1.0
