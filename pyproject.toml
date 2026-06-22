@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "discogser"
-version = "1.0.0"
+version = "1.0.1"
 description = "Catalog your vinyl into Discogs from phone photos — Claude vision reads the cover and dead-wax runout to pin the exact pressing."
 readme = "README.md"
 license = { text = "Unlicense" }

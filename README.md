@@ -72,34 +72,31 @@ not silently add the wrong records.
 
 ## Setup
 
-Requires **Python 3.11+**.
+Requires **Python 3.11+**. Install with pipx (recommended) or pip:
 
 ```bash
-git clone https://github.com/JDStraughan/discogser.git
-cd discogser
-python3.11 -m venv .venv
-source .venv/bin/activate
-
-pip install -e ".[heic]"    # installs the `discogser` command + iPhone HEIC support
+pipx install "discogser[heic]"      # or: pip install "discogser[heic]"
 ```
 
 > **📱 Shooting on an iPhone? Keep the `[heic]` extra.** iPhones save HEIC by
 > default, and without this support every photo fails to decode. Plain
-> `pip install -e .` is only for JPEG/PNG shooters. (The tool warns you loudly
-> if it sees HEIC photos it can't read.)
+> `discogser` (no `[heic]`) is only for JPEG/PNG shooters. (The tool warns you
+> loudly if it sees HEIC photos it can't read.)
 
-Then create your config:
+To run from a clone instead (for development):
 
 ```bash
-cp .env.example .env        # then fill it in (see below)
+git clone https://github.com/JDStraughan/discogser.git
+cd discogser
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -e ".[heic,dev]"
 ```
-
-> A published `pip install discogser` is on the way (see [RELEASING.md](RELEASING.md));
-> until then, install from the clone above.
 
 ### Configuration
 
-Set these in `.env`:
+Create a `.env` file **in the directory you'll run `discogser` from** (it's
+searched for upward from there) with these variables. From a clone you can
+`cp .env.example .env` to start:
 
 | Variable | What it is |
 |---|---|

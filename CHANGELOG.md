@@ -3,6 +3,13 @@
 All notable changes to discogser are documented here. This project follows
 [Semantic Versioning](https://semver.org).
 
+## [1.0.1]
+
+### Fixed
+- `.env` is now loaded from the working directory (searched upward), not the
+  installed package directory, so a `pip install`ed discogser actually finds
+  your config. Previously only running from a clone happened to work.
+
 ## [1.0.0]
 
 First public release.

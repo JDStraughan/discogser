@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 # Current vision-capable Claude Sonnet (verified against the model catalog:
 # active, 1M context, image input supported). Override via ANTHROPIC_MODEL.
@@ -29,12 +28,14 @@ class Config:
 
     @classmethod
     def load(cls, env_file: str | os.PathLike[str] | None = None) -> Config:
-        # Load .env from the project directory (or an explicit path) without
-        # clobbering variables already present in the real environment.
+        # Load .env from the working directory (searching upward), or an explicit
+        # path, without clobbering variables already present in the real
+        # environment. Using the cwd (not the installed package dir) means a
+        # `pip install`ed discogser still finds the user's .env.
         if env_file is not None:
             load_dotenv(env_file, override=False)
         else:
-            load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+            load_dotenv(find_dotenv(usecwd=True), override=False)
 
         def require(name: str) -> str:
             value = os.environ.get(name, "").strip()
