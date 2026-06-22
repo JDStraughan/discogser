@@ -1,26 +1,15 @@
 # Releasing
 
-`discogser` publishes to PyPI automatically when you push a version tag. It uses
-[PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/), so there
-are no API tokens to create, store, or rotate.
+Pushing a version tag builds the package, creates a GitHub Release with the
+wheel/sdist attached, and (once enabled) publishes to PyPI via
+[Trusted Publishing](https://docs.pypi.org/trusted-publishers/) - no API tokens
+to store. Tagging is always safe: PyPI publishing is gated behind a repo
+variable, so a release before PyPI is set up just produces the GitHub Release.
 
-## One-time setup (per project)
+## Cut a release (works today)
 
-1. Create the project on PyPI (or reserve the name) at <https://pypi.org>.
-2. On PyPI, go to the project's **Settings → Publishing** and add a trusted
-   publisher with:
-   - Owner: `JDStraughan`
-   - Repository: `discogser`
-   - Workflow name: `release.yml`
-   - Environment name: `pypi`
-3. In the GitHub repo, create an **Environment** named `pypi`
-   (Settings → Environments). Optionally add a required reviewer so a human
-   approves each publish.
-
-## Cutting a release
-
-1. Bump the version in `pyproject.toml` (and `discogser/__init__.py`).
-2. Commit, then tag and push:
+1. Bump the version in `pyproject.toml` and `discogser/__init__.py`.
+2. Tag and push:
 
    ```bash
    git commit -am "Release vX.Y.Z"
@@ -28,13 +17,26 @@ are no API tokens to create, store, or rotate.
    git push origin main --tags
    ```
 
-3. The **Release** workflow builds, runs `twine check`, and publishes to PyPI.
-   Within a minute, `pip install discogser` installs the new version.
+The **Release** workflow builds, `twine check`s, and publishes a GitHub Release
+with downloadable artifacts. Users can install straight from it:
+`pip install https://github.com/JDStraughan/discogser/releases/download/vX.Y.Z/discogser-X.Y.Z-py3-none-any.whl`.
+
+## Enable `pip install discogser` (one-time PyPI setup)
+
+Requires your pypi.org account:
+
+1. Reserve the project on [pypi.org](https://pypi.org).
+2. Project -> **Settings -> Publishing** -> add a Trusted Publisher:
+   owner `JDStraughan`, repo `discogser`, workflow `release.yml`, environment `pypi`.
+3. In the GitHub repo: create an **Environment** named `pypi`
+   (Settings -> Environments), and set a repo **Variable** `PUBLISH_TO_PYPI` =
+   `true` (Settings -> Secrets and variables -> Actions -> Variables).
+
+The next tag then also publishes to PyPI automatically.
 
 ## Local sanity build
 
 ```bash
-python -m build
-twine check dist/*
+python -m build && twine check dist/*
 pip install dist/discogser-*.whl   # smoke-test the wheel
 ```
